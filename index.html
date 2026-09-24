@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deck Forge</title>
+<style>
+:root{
+  --mat:#1f2538; --panel:#283049; --panel2:#323b57; --line:#414b6b;
+  --ink:#ece6d6; --dim:#9ba2b8; --gold:#c9a44c; --gold2:#e6c878;
+  --ok:#6cbf8a; --bad:#e36a5f; --warn:#e0a83a;
+  --f-normal:#c9a45a; --f-effect:#c46a2e; --f-ritual:#5a7fc2; --f-fusion:#8a5bb0;
+  --f-synchro:#d9d9dc; --f-xyz:#34343a; --f-link:#2f64b0; --f-spell:#1e8c7e; --f-trap:#b0467d; --f-token:#8b8b8b;
+  --serif:"Palatino Linotype","Book Antiqua",Palatino,"URW Palladio L",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%}
+body{background:var(--mat);color:var(--ink);font:14px/1.45 var(--sans);font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--gold)}
+button.primary{background:var(--gold);color:#241c08;border-color:var(--gold);font-weight:600}
+button.ghost{background:transparent}
+button.small{padding:1px 7px;font-size:12px}
+input,select{background:#1a2032;border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0}
+input[type=checkbox]{accent-color:var(--gold)}
+:focus-visible{outline:2px solid var(--gold2);outline-offset:1px}
+h1,h2,h3{font-family:var(--serif);font-variant:small-caps;letter-spacing:.02em;font-weight:600;margin:0}
+h2{font-size:19px} h3{font-size:16px;color:var(--gold2)}
+.dim{color:var(--dim)} .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grow{flex:1}
+
+/* header */
+header{display:flex;align-items:center;gap:16px;padding:8px 16px;background:#181d2d;border-bottom:1px solid var(--line);flex-wrap:wrap;position:sticky;top:0;z-index:5}
+.brand{font-size:22px;color:var(--gold2)}
+nav{display:flex;gap:2px}
+nav button{background:transparent;border:0;border-bottom:2px solid transparent;border-radius:0;padding:6px 10px;font-family:var(--serif);font-variant:small-caps;font-size:16px;color:var(--dim)}
+nav button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--gold)}
+.hdr-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pill{padding:3px 10px;border-radius:99px;border:1px solid var(--line);cursor:pointer;background:transparent}
+.pill.ok{border-color:var(--ok)} .pill.bad{border-color:var(--bad)}
+.meter{display:flex;align-items:center;gap:6px}
+.meter .bar{width:90px;height:8px;background:#141927;border-radius:4px;overflow:hidden}
+.meter .bar i{display:block;height:100%;background:var(--gold)}
+.meter.over .bar i{background:var(--bad)}
+
+main{padding:14px 16px}
+.tab:not(.on){display:none}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+
+/* build layout */
+.build{display:grid;grid-template-columns:320px minmax(0,1fr) 300px;gap:14px;align-items:start}
+.search .filters{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.search .filters .full{grid-column:1/-1}
+.results{max-height:calc(100vh - 330px);min-height:200px;overflow:auto;margin-top:6px;border-top:1px solid var(--line)}
+.res{display:flex;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px solid #2f3752;cursor:pointer}
+.res:hover{background:var(--panel2)}
+.res .sw{width:8px;align-self:stretch;border-radius:2px;flex:none}
+.res .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res .sub{font-size:12px;color:var(--dim)}
+.res .lim{margin-left:auto;font-size:12px;flex:none}
+.res img{width:34px;height:34px;object-fit:cover;border-radius:3px;flex:none}
+
+.deckbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.section{margin-bottom:14px;border:1px dashed transparent;border-radius:10px;padding:4px}
+.section.drop{border-color:var(--gold)}
+.section-h{display:flex;align-items:baseline;gap:10px;margin:0 0 6px 2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;min-height:46px}
+.empty{color:var(--dim);font-size:13px;padding:10px;border:1px dashed var(--line);border-radius:8px;grid-column:1/-1}
+
+/* card tile: frame colour carries the card type */
+.tile{position:relative;border-radius:6px;padding:5px 7px 5px 11px;cursor:pointer;min-height:52px;
+  background:var(--fc);color:#1b1408;border:1px solid rgba(0,0,0,.35);overflow:hidden}
+.tile.dark{color:#f0ece0}
+.tile.pend{background:linear-gradient(180deg,var(--fc) 55%,var(--f-spell) 55%)}
+.tile.sel{outline:2px solid var(--gold2);outline-offset:1px}
+.tile.illegal{box-shadow:inset 0 0 0 2px var(--bad)}
+.tile .nm{font-family:var(--serif);font-weight:700;font-size:13px;line-height:1.2;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;padding-right:18px}
+.tile .sub{font-size:11px;opacity:.8;margin-top:2px}
+.tile .cnt{position:absolute;top:4px;right:5px;background:rgba(0,0,0,.72);color:#fff;border-radius:4px;font-size:12px;font-weight:700;padding:0 5px}
+.tile .tags{position:absolute;left:0;top:0;bottom:0;width:5px;display:flex;flex-direction:column}
+.tile .tags i{flex:1}
+.tile .pts{position:absolute;bottom:3px;right:5px;font-size:11px;font-weight:700;background:var(--gold);color:#241c08;border-radius:3px;padding:0 4px}
+.tile.art{min-height:70px;background-size:cover;background-position:center;color:#fff;text-shadow:0 1px 2px #000}
+.tile.art::before{content:"";position:absolute;inset:0;background:linear-gradient(0deg,rgba(0,0,0,.75),rgba(0,0,0,.15) 70%);}
+.tile.art>*{position:relative}
+.tile.art .tags,.tile.art .cnt,.tile.art .pts{position:absolute}
+
+.detail img{width:100%;border-radius:6px;margin-bottom:8px}
+.detail .typeline{color:var(--dim);font-size:13px;margin:2px 0 8px}
+.detail .desc{white-space:pre-wrap;font-size:13px;background:#1f263a;border-radius:6px;padding:8px;max-height:260px;overflow:auto}
+.detail .btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{border-radius:99px;padding:1px 9px;font-size:12px;border:1px solid var(--c);background:transparent;color:var(--ink)}
+.chip.on{background:var(--c);color:#161616;font-weight:600}
+.issues{margin:0 0 10px;padding:8px 10px 8px 26px;border-left:3px solid var(--bad);background:#2b2433;border-radius:6px}
+.issues li.warn{color:var(--warn)}
+
+/* hands */
+.hands{display:grid;grid-template-columns:300px minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:4px 6px;border-bottom:1px solid #353e5c;vertical-align:middle}
+th{font-weight:600;color:var(--dim);font-size:12px}
+td.num,th.num{text-align:right}
+.hands .panel:first-child table{font-size:13px}
+.cat-row{display:flex;gap:6px;align-items:center;margin-bottom:5px}
+.cat-row input[type=color]{width:28px;height:26px;padding:0;border:0;background:none}
+.scen{border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:8px}
+.scen .p{font-family:var(--serif);font-size:24px;color:var(--gold2)}
+.cond{display:flex;gap:5px;margin:4px 0}
+.cond select,.cond input{padding:3px 5px}
+.big{font-family:var(--serif);font-size:40px;color:var(--gold2);line-height:1}
+.hand-sample{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-top:8px}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start}
+.bars .b{display:grid;grid-template-columns:110px 1fr 34px;gap:8px;align-items:center;margin:3px 0;font-size:13px}
+.bars .b span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bars .track{height:12px;background:#1a2032;border-radius:3px;overflow:hidden}
+.bars .track i{display:block;height:100%}
+
+/* small world */
+.sw{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start}
+.sw canvas{width:100%;height:560px;display:block;background:#1a2033;border-radius:8px;touch-action:none}
+.matrix-wrap{overflow:auto;max-height:600px}
+.matrix td,.matrix th{border:1px solid #2a3149;padding:0;text-align:center;font-size:11px;min-width:24px;height:24px}
+.matrix th.rh{text-align:right;padding:0 6px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.matrix th.ch{writing-mode:vertical-rl;transform:rotate(180deg);height:150px;white-space:nowrap;padding:4px 0;vertical-align:bottom}
+.matrix td{cursor:pointer}
+.bridge{padding:6px 0;border-bottom:1px solid #353e5c;font-size:13px}
+.bridge b{font-family:var(--serif)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:transparent}
+.seg button[aria-pressed=true]{background:var(--gold);color:#241c08}
+
+/* format */
+.fmt{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;align-items:start}
+.form{display:grid;grid-template-columns:180px 1fr;gap:8px 12px;align-items:center;max-width:620px}
+.list-item{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:6px;cursor:pointer}
+.list-item.on{background:var(--panel2);outline:1px solid var(--gold)}
+.sugg{position:relative}
+.sugg .menu{position:absolute;z-index:9;left:0;right:0;top:100%;background:var(--panel2);border:1px solid var(--line);border-radius:6px;max-height:240px;overflow:auto}
+.sugg .menu div{padding:5px 8px;cursor:pointer}
+.sugg .menu div:hover{background:var(--line)}
+
+.splash{max-width:560px;margin:40px auto;text-align:left}
+.splash p{max-width:65ch}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--gold);padding:8px 14px;border-radius:8px;z-index:20;display:none}
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;max-width:560px;width:92vw}
+dialog textarea{width:100%;min-height:160px;background:#1a2032;color:var(--ink);border:1px solid var(--line);border-radius:6px;font:12px/1.4 ui-monospace,monospace}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+
+@media (max-width:1150px){
+  .build{grid-template-columns:300px minmax(0,1fr)} .build .detail{grid-column:1/-1}
+  .hands{grid-template-columns:1fr 1fr} .hands>:first-child{grid-column:1/-1}
+}
+@media (max-width:760px){
+  .build,.hands,.sw,.fmt{grid-template-columns:1fr}
+  .results{max-height:50vh}
+  .form{grid-template-columns:1fr}
+  .sw canvas{height:420px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1 class="brand">Deck Forge</h1>
+  <nav role="tablist" id="tabs">
+    <button role="tab" data-tab="build" aria-selected="true">Build</button>
+    <button role="tab" data-tab="hands">Hands</button>
+    <button role="tab" data-tab="stats">Stats</button>
+    <button role="tab" data-tab="sw">Small World</button>
+    <button role="tab" data-tab="format">Format</button>
+  </nav>
+  <div class="hdr-right">
+    <select id="deckSel" aria-label="Deck"></select>
+    <select id="fmtSel" aria-label="Format"></select>
+    <label class="row" title="Count points against the format's cap"><input type="checkbox" id="ptsToggle"> Points</label>
+    <div class="meter" id="meter" hidden><div class="bar"><i></i></div><span></span></div>
+    <button class="pill" id="legalPill">…</button>
+  </div>
+</header>
+<main>
+  <section class="tab on" id="tab-build"></section>
+  <section class="tab" id="tab-hands"></section>
+  <section class="tab" id="tab-stats"></section>
+  <section class="tab" id="tab-sw"></section>
+  <section class="tab" id="tab-format"></section>
+</main>
+<div class="toast" id="toast"></div>
+<dialog id="dlg"><form method="dialog" id="dlgBody"></form></dialog>
+<input type="file" id="fileIn" accept=".ydk,.txt" hidden>
+<script>
+"use strict";
+/* ================= utilities ================= */
+/* Card data is served from this site's own data/ folder (built by scripts/update-cards.mjs).
+   The app never contacts YGOPRODeck or any other third party. */
+const DATA = "data/";
+/* Images: "off" | "folder" (a folder the user picks; files stay on their machine)
+   | "path" (a URL template such as pics/{id}.jpg, for a self-hosted or local copy) */
+const IMGS = { urls: new Map(), handle: null, needsPermission: false };
+const imgOn = () => S.ui.img === "path" || (S.ui.img === "folder" && IMGS.urls.size > 0);
+const IMG_FULL = id => S.ui.img === "path" ? S.ui.imgTpl.replace("{id}", id) : IMGS.urls.get(+id) || "";
+const IMG_ART = id => S.ui.img === "path" && S.ui.artTpl ? S.ui.artTpl.replace("{id}", id) : IMG_FULL(id);
+// a full card image has its art box in the upper middle; a cropped-art template is used as is
+const artPos = () => S.ui.img === "path" && S.ui.artTpl ? {} : { backgroundSize: "150%", backgroundPosition: "50% 28%" };
+const hideBroken = e => { e.target.style.visibility = "hidden"; };
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+function h(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "style" && typeof v === "object") { for (const [p, x] of Object.entries(v)) p.startsWith("--") ? e.style.setProperty(p, x) : e.style[p] = x; }
+    else if (k === "html") e.innerHTML = v;
+    else if (k.startsWith("aria-")) e.setAttribute(k, String(v));
+    else if (k in e && typeof v !== "string") e[k] = v;
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) e.append(k.nodeType ? k : String(k));
+  return e;
+}
+// let replaceChildren skip null/false like h() does
+{ const rc = Element.prototype.replaceChildren; Element.prototype.replaceChildren = function (...k) { rc.apply(this, k.flat(Infinity).filter(x => x != null && x !== false)); }; }
+const uid = () => Math.random().toString(36).slice(2, 10);
+const pct = p => p <= 0 ? "0%" : p >= 1 ? "100%" : (100 * p).toFixed(p > 0.999 || p < 0.001 ? 2 : 1) + "%";
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = "none", 2600); }
+const binomMemo = new Map();
+function binom(n, k) {
+  if (k < 0 || k > n) return 0; k = Math.min(k, n - k);
+  const key = n * 1000 + k; if (binomMemo.has(key)) return binomMemo.get(key);
+  let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i;
+  binomMemo.set(key, r); return r;
+}
+
+/* ================= storage ================= */
+const idb = {
+  db: null, mem: new Map(),
+  open() { return new Promise(res => {
+    try { const r = indexedDB.open("deck-forge", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onsuccess = () => { this.db = r.result; res(); }; r.onerror = () => res();
+    } catch { res(); } }); },
+  get(k) { if (!this.db) return Promise.resolve(this.mem.get(k)); return new Promise(res => {
+    const r = this.db.transaction("kv").objectStore("kv").get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); }); },
+  set(k, v) { if (!this.db) { this.mem.set(k, v); return Promise.resolve(); } return new Promise(res => {
+    const tx = this.db.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = res; tx.onerror = res; }); }
+};
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem("deck-forge:" + k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("deck-forge:" + k, JSON.stringify(v)); } catch {} }
+};
+
+/* ================= card model ================= */
+const isMonster = c => c.type.includes("Monster");
+const isSpell = c => c.type === "Spell Card";
+const isTrap = c => c.type === "Trap Card";
+const isExtra = c => /fusion|synchro|xyz|link/.test(c.frame);
+const isPend = c => c.frame.includes("pendulum");
+const isLink = c => c.frame.startsWith("link");
+const baseFrame = c => c.frame.replace("_pendulum", "");
+const DARK_FRAMES = new Set(["xyz", "link", "fusion", "ritual", "spell", "trap"]);
+function frameColor(c) { const f = baseFrame(c); return `var(--f-${["normal","effect","ritual","fusion","synchro","xyz","link","spell","trap"].includes(f) ? f : "token"})`; }
+function sortKey(c) {
+  const f = baseFrame(c);
+  const order = isExtra(c) ? ["fusion","synchro","xyz","link"].indexOf(f) : isMonster(c) ? 0 : isSpell(c) ? 1 : 2;
+  return String(order) + (isMonster(c) ? String(12 - (c.level || 0)).padStart(2, "0") : "00") + c.name;
+}
+function subLine(c) {
+  if (isMonster(c)) {
+    const lv = isLink(c) ? `Link-${c.link}` : baseFrame(c) === "xyz" ? `Rank ${c.level}` : `Lv ${c.level}`;
+    const st = isLink(c) ? `${fmtStat(c.atk)}` : `${fmtStat(c.atk)}/${fmtStat(c.def)}`;
+    return `${c.attr || ""} ${lv}  ${c.race}  ${st}`;
+  }
+  return `${c.race} ${isSpell(c) ? "Spell" : "Trap"}`;
+}
+const fmtStat = v => v == null || v < 0 ? "?" : v;
+/* ================= state ================= */
+const S = {
+  cards: new Map(), alias: new Map(), list: [], races: [], gp: {}, gpo: {}, meta: null,
+  decks: [], deckId: null, formats: [], fmtId: null, sel: null, tab: "build",
+  ui: Object.assign({ img: "off", imgTpl: "pics/{id}.jpg", artTpl: "", textSearch: false }, LS.get("ui", {}), )
+};
+const card = id => S.cards.get(S.alias.get(+id) ?? +id);
+const deck = () => S.decks.find(d => d.id === S.deckId);
+const fmt = () => S.formats.find(f => f.id === S.fmtId);
+
+const DEFAULT_CATS = [
+  ["Starter", "#e6b24a"], ["Extender", "#5aa7e8"], ["Follow-up", "#a68bf0"], ["Hand trap", "#62c78f"], ["Brick", "#e0665c"]
+];
+function newDeck(name = "New deck") {
+  const cats = DEFAULT_CATS.map(([n, c]) => ({ id: uid(), name: n, color: c }));
+  const [st, ex, , , br] = cats;
+  return { id: uid(), name, main: {}, extra: {}, side: {}, tags: {}, cats, hand: 5, swPool: [],
+    scen: [
+      { id: uid(), name: "Can play", conds: [{ cat: st.id, op: ">=", n: 1 }] },
+      { id: uid(), name: "Starter + extender", conds: [{ cat: st.id, op: ">=", n: 1 }, { cat: ex.id, op: ">=", n: 1 }] },
+      { id: uid(), name: "Brick-free opener", conds: [{ cat: st.id, op: ">=", n: 1 }, { cat: br.id, op: "<=", n: 0 }] }
+    ] };
+}
+const PRESETS = {
+  "TCG":         { banlist: "tcg",  pool: "TCG" },
+  "OCG":         { banlist: "ocg",  pool: "OCG" },
+  "Goat":        { banlist: "goat", pool: "GOAT" },
+  "Master Duel": { banlist: "none", pool: "Master Duel" },
+  "Genesys":     { banlist: "none", pool: "TCG", points: true, pointsList: "gp",  cap: 100, noLinkPend: true },
+  "Genesys OCG": { banlist: "none", pool: "OCG", points: true, pointsList: "gpo", cap: 100, noLinkPend: true },
+  "Unlimited":   { banlist: "none", pool: "any" }
+};
+function newFormat(preset = "TCG", name) {
+  return Object.assign({ id: uid(), name: name || preset, min: 40, max: 60, extraMax: 15, sideMax: 15, copies: 3,
+    banlist: "tcg", pool: "any", points: false, pointsList: "gp", cap: 100, noLinkPend: false, over: {}, pover: {} },
+    JSON.parse(JSON.stringify(PRESETS[preset] || {})));
+}
+function save() { LS.set("decks", S.decks); LS.set("formats", S.formats); LS.set("cur", { deck: S.deckId, fmt: S.fmtId, tab: S.tab }); LS.set("ui", S.ui); }
+
+/* ================= legality ================= */
+function limitOf(c, f = fmt()) {
+  if (f.over[c.id] != null) return f.over[c.id];
+  if (f.noLinkPend && (isLink(c) || isPend(c))) return 0;
+  let l = f.copies;
+  if (f.banlist !== "none") {
+    const b = c.ban[f.banlist];
+    if (b === "Banned" || b === "Forbidden") l = 0;
+    else if (b === "Limited") l = Math.min(l, 1);
+    else if (b === "Semi-Limited") l = Math.min(l, 2);
+  }
+  return l;
+}
+function inPool(c, f = fmt()) {
+  if (f.pool === "any" || !c.formats.length) return true;
+  return c.formats.includes(f.pool.toLowerCase());
+}
+function pointsOf(c, f = fmt()) {
+  if (f.pover[c.id] != null) return f.pover[c.id];
+  return (S[f.pointsList] || {})[c.id] || 0;
+}
+const count = sec => Object.values(sec).reduce((a, b) => a + b, 0);
+function totalCopies(d, id) { return (d.main[id] || 0) + (d.extra[id] || 0) + (d.side[id] || 0); }
+function deckPoints(d = deck(), f = fmt()) {
+  let p = 0; for (const s of ["main", "extra", "side"]) for (const [id, n] of Object.entries(d[s])) { const c = card(id); if (c) p += n * pointsOf(c, f); }
+  return p;
+}
+function validate(d = deck(), f = fmt()) {
+  const out = [], m = count(d.main), e = count(d.extra), s = count(d.side);
+  if (m < f.min) out.push({ lvl: "err", msg: `Main Deck has ${m} cards; the minimum is ${f.min}.` });
+  if (m > f.max) out.push({ lvl: "err", msg: `Main Deck has ${m} cards; the maximum is ${f.max}.` });
+  if (e > f.extraMax) out.push({ lvl: "err", msg: `Extra Deck has ${e} cards; the maximum is ${f.extraMax}.` });
+  if (s > f.sideMax) out.push({ lvl: "err", msg: `Side Deck has ${s} cards; the maximum is ${f.sideMax}.` });
+  const ids = new Set([...Object.keys(d.main), ...Object.keys(d.extra), ...Object.keys(d.side)]);
+  for (const id of ids) {
+    const c = card(id); if (!c) { out.push({ lvl: "warn", msg: `Unknown card id ${id}.` }); continue; }
+    const n = totalCopies(d, id), l = limitOf(c, f);
+    if (n > l) out.push({ lvl: "err", id: c.id, msg: l === 0 ? `${c.name} is not allowed.` : `${c.name}: ${n} copies, limit ${l}.` });
+    if (!inPool(c, f)) out.push({ lvl: "warn", id: c.id, msg: `${c.name} is not in the ${f.pool} card pool.` });
+  }
+  if (f.points) { const p = deckPoints(d, f); if (p > f.cap) out.push({ lvl: "err", msg: `${p} points; the cap is ${f.cap}.` }); }
+  return out;
+}
+
+/* ================= deck editing ================= */
+function add(id, sec, n = 1) {
+  const d = deck(), c = card(id); if (!c) return;
+  id = c.id;
+  if (!sec) sec = isExtra(c) ? "extra" : "main";
+  if (sec === "main" && isExtra(c)) sec = "extra";
+  if (sec === "extra" && !isExtra(c)) sec = "main";
+  d[sec][id] = (d[sec][id] || 0) + n;
+  if (d[sec][id] <= 0) delete d[sec][id];
+  S.sel = id; changed();
+}
+function move(id, from, to) { const d = deck(); if (!d[from][id]) return; add(id, from, -1); add(id, to, 1); }
+function changed() { save(); renderHeader(); renderTab(); }
+
+/* ================= card database ================= */
+async function loadDB() {
+  const blob = await idb.get("db");
+  if (!blob) return false;
+  ingest(blob); return true;
+}
+function ingest(blob) {
+  S.cards.clear(); S.alias.clear();
+  for (const c of blob.cards) { S.cards.set(c.id, c); for (const a of c.alts || []) if (a !== c.id) S.alias.set(a, c.id); }
+  S.list = blob.cards.filter(c => c.frame !== "skill" && c.frame !== "token").sort((a, b) => a.name.localeCompare(b.name));
+  S.races = [...new Set(S.list.filter(isMonster).map(c => c.race))].sort();
+  S.gp = blob.gp || {}; S.gpo = blob.gpo || {}; S.meta = { version: blob.version, fetched: blob.fetched, source: blob.source, n: blob.cards.length };
+}
+async function storeDB(blob) {
+  if (!blob || !Array.isArray(blob.cards) || !blob.version) throw new Error("that file isn't a Deck Forge cards.json");
+  for (const c of blob.cards) c.formats = (c.formats || []).map(s => s.toLowerCase());
+  await idb.set("db", blob); ingest(blob);
+}
+// Checks data/meta.json (tiny) and downloads data/cards.json only when the version changed.
+async function syncData(status = () => {}, force = false) {
+  let meta;
+  try {
+    const r = await fetch(DATA + "meta.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error(`meta.json: HTTP ${r.status}`);
+    meta = await r.json();
+  } catch (e) { return { ok: !!S.meta, reachable: false, err: e.message }; }
+  if (!force && S.meta && S.meta.version === meta.version) return { ok: true, reachable: true, updated: false };
+  status("Downloading card data…");
+  const r = await fetch(DATA + "cards.json", { cache: "no-cache" });
+  if (!r.ok) throw new Error(`cards.json: HTTP ${r.status}`);
+  status("Saving to this browser…");
+  await storeDB(await r.json());
+  return { ok: true, reachable: true, updated: true };
+}
+async function loadDataFile(file) { await storeDB(JSON.parse(await file.text())); }
+
+/* ================= image folder ================= */
+function indexFiles(files) {
+  for (const u of IMGS.urls.values()) URL.revokeObjectURL(u);
+  IMGS.urls.clear();
+  for (const f of files) { const m = /^(\d+)\.(jpe?g|png|webp)$/i.exec(f.name); if (m && !IMGS.urls.has(+m[1])) IMGS.urls.set(+m[1], URL.createObjectURL(f)); }
+}
+async function* walkDir(dir, depth = 0) {
+  const subdirs = [];
+  for await (const e of dir.values()) { if (e.kind === "file") yield e; else if (depth < 2) subdirs.push(e); }
+  for (const d of subdirs) yield* walkDir(d, depth + 1);   // top-level files win over subfolders like pics/field
+}
+async function indexHandle(dir) {
+  const files = [];
+  for await (const fh of walkDir(dir)) if (/^\d+\.(jpe?g|png|webp)$/i.test(fh.name)) files.push(await fh.getFile());
+  indexFiles(files); IMGS.needsPermission = false;
+}
+async function pickFolder() {
+  if (window.showDirectoryPicker) {
+    try {
+      const d = await window.showDirectoryPicker({ id: "deck-forge-images", mode: "read" });
+      IMGS.handle = d; await idb.set("imgdir", d); await indexHandle(d); return true;
+    } catch (e) { if (e.name === "AbortError") return false; }
+  }
+  return new Promise(res => {   // Firefox/Safari: works for this session only
+    const inp = h("input", { type: "file", webkitdirectory: true, multiple: true });
+    inp.addEventListener("change", () => { indexFiles(inp.files); res(true); });
+    inp.addEventListener("cancel", () => res(false));
+    inp.click();
+  });
+}
+async function restoreFolder() {
+  const d = await idb.get("imgdir"); if (!d || !d.queryPermission) return;
+  IMGS.handle = d;
+  try { if (await d.queryPermission({ mode: "read" }) === "granted") await indexHandle(d); else IMGS.needsPermission = true; }
+  catch { IMGS.needsPermission = true; }
+}
+async function reconnectFolder() {
+  if (IMGS.handle && await IMGS.handle.requestPermission({ mode: "read" }) === "granted") { await indexHandle(IMGS.handle); return true; }
+  return false;
+}
+async function chooseImages(mode) {
+  S.ui.img = mode; save();
+  if (mode === "folder" && !IMGS.urls.size) {
+    const ok = IMGS.needsPermission ? await reconnectFolder() : await pickFolder();
+    if (ok) toast(`${IMGS.urls.size} images found`);
+  }
+  renderResults(); renderTab();
+}
+
+/* ================= header ================= */
+function renderHeader() {
+  const ds = $("#deckSel"); ds.replaceChildren(...S.decks.map(d => h("option", { value: d.id, selected: d.id === S.deckId }, d.name)));
+  const fs = $("#fmtSel"); fs.replaceChildren(...S.formats.map(f => h("option", { value: f.id, selected: f.id === S.fmtId }, f.name)));
+  const f = fmt(); $("#ptsToggle").checked = f.points;
+  const meter = $("#meter"); meter.hidden = !f.points;
+  if (f.points) {
+    const p = deckPoints(); meter.classList.toggle("over", p > f.cap);
+    $("i", meter).style.width = Math.min(100, 100 * p / Math.max(1, f.cap)) + "%";
+    $("span", meter).textContent = `${p}/${f.cap}`;
+  }
+  const iss = S.cards.size ? validate() : [], errs = iss.filter(i => i.lvl === "err").length;
+  const pill = $("#legalPill");
+  pill.className = "pill " + (errs ? "bad" : "ok");
+  pill.textContent = !S.cards.size ? "No card data" : errs ? `${errs} issue${errs > 1 ? "s" : ""}` : iss.length ? "Legal, with notes" : "Legal";
+}
+function setTab(t) {
+  S.tab = t; $$("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t));
+  $$(".tab").forEach(s => s.classList.toggle("on", s.id === "tab-" + t)); save(); renderTab();
+}
+function renderTab() {
+  if (!S.cards.size && S.tab !== "format") return renderSplash($("#tab-" + S.tab));
+  ({ build: renderBuild, hands: renderHands, stats: renderStats, sw: renderSW, format: renderFormat })[S.tab]();
+}
+function renderSplash(root) {
+  const st = h("p", { class: "dim" });
+  const file = h("input", { type: "file", accept: ".json,application/json", hidden: true, onchange: async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { await loadDataFile(f); toast(`Loaded ${S.meta.n} cards`); changed(); } catch (err) { st.textContent = `Couldn't load it: ${err.message}.`; }
+  } });
+  root.replaceChildren(h("div", { class: "splash panel" },
+    h("h2", {}, "No card data yet"),
+    h("p", {}, "Deck Forge reads its card list from data/cards.json next to this page. That file is built by the update script, so run it once (see the README)."),
+    h("p", { class: "dim" }, "Opened this page straight from your disk? Browsers don't let file:// pages read neighbouring files, so either serve the folder locally or load cards.json by hand."),
+    h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => file.click() }, "Load cards.json"),
+      h("button", { onclick: async () => { st.textContent = "Checking…"; try { const r = await syncData(m => st.textContent = m); if (r.updated) { toast(`Loaded ${S.meta.n} cards`); changed(); } else st.textContent = `data/meta.json isn't reachable (${r.err || "no data"}).`; } catch (err) { st.textContent = err.message; } } }, "Try again")),
+    st, file));
+}
+function imageSelect() {
+  return h("select", { "aria-label": "Card images", onchange: e => chooseImages(e.target.value) },
+    [["off", "Off"], ["folder", "Image folder"], ["path", "Image URL path"]].map(([v, l]) => h("option", { value: v, selected: S.ui.img === v }, l)));
+}
+
+/* ================= build tab ================= */
+const Q = { q: "", kind: "all", attr: "", race: "", lvMin: "", lvMax: "", atk: "", def: "", arch: "", legal: false, limit: 150 };
+function searchCards() {
+  const words = Q.q.toLowerCase().split(/\s+/).filter(Boolean), arch = Q.arch.toLowerCase();
+  const out = [];
+  for (const c of S.list) {
+    if (Q.kind === "monster" && !(isMonster(c) && !isExtra(c))) continue;
+    if (Q.kind === "extra" && !isExtra(c)) continue;
+    if (Q.kind === "spell" && !isSpell(c)) continue;
+    if (Q.kind === "trap" && !isTrap(c)) continue;
+    if (Q.attr && c.attr !== Q.attr) continue;
+    if (Q.race && c.race !== Q.race) continue;
+    if (Q.lvMin !== "" && !(c.level >= +Q.lvMin)) continue;
+    if (Q.lvMax !== "" && !(c.level <= +Q.lvMax)) continue;
+    if (Q.atk !== "" && c.atk !== +Q.atk) continue;
+    if (Q.def !== "" && c.def !== +Q.def) continue;
+    if (arch && !(c.arch || "").toLowerCase().includes(arch)) continue;
+    if (words.length) {
+      const hay = S.ui.textSearch ? (c.name + " " + c.desc).toLowerCase() : c.name.toLowerCase();
+      if (!words.every(w => hay.includes(w))) continue;
+    }
+    if (Q.legal && (limitOf(c) === 0 || !inPool(c))) continue;
+    out.push(c);
+  }
+  return out;
+}
+function dragData(e, id, from) { e.dataTransfer.setData("text/plain", JSON.stringify({ id, from })); e.dataTransfer.effectAllowed = "copyMove"; }
+function renderResults() {
+  const box = $("#results"); if (!box) return;
+  const res = searchCards(), f = fmt();
+  $("#resCount").textContent = `${res.length} card${res.length === 1 ? "" : "s"}`;
+  box.replaceChildren(...res.slice(0, Q.limit).map(c => {
+    const l = limitOf(c), p = f.points ? pointsOf(c) : 0;
+    return h("div", { class: "res", draggable: true, title: "Click to add, Alt-click to add to Side",
+      ondragstart: e => dragData(e, c.id, null),
+      onclick: e => add(c.id, e.altKey ? "side" : null) },
+      imgOn() ? h("img", { src: IMG_ART(c.id), alt: "", loading: "lazy", style: Object.assign({ background: frameColor(c) }, artPos().backgroundSize ? { objectPosition: "50% 28%" } : {}), onerror: e => { e.target.removeAttribute("src"); } }) : h("span", { class: "sw", style: { background: frameColor(c) } }),
+      h("div", { style: { minWidth: 0 } }, h("div", { class: "nm" }, c.name), h("div", { class: "sub" }, subLine(c))),
+      h("span", { class: "lim " + (l === 0 ? "bad" : l < 3 ? "warn" : "dim") }, (l < f.copies ? `${l}` : "") + (p ? ` ${p}pt` : "")));
+  }), res.length > Q.limit ? h("button", { class: "ghost", style: { width: "100%" }, onclick: () => { Q.limit += 150; renderResults(); } }, "Show more") : null);
+}
+function tile(c, n, sec) {
+  const d = deck(), f = fmt(), dark = DARK_FRAMES.has(baseFrame(c));
+  const tags = sec === "main" ? (d.tags[c.id] || []).map(t => d.cats.find(k => k.id === t)).filter(Boolean) : [];
+  const bad = totalCopies(d, c.id) > limitOf(c) || !inPool(c);
+  const p = f.points ? pointsOf(c) : 0;
+  const t = h("div", { class: ["tile", dark && "dark", isPend(c) && "pend", S.sel === c.id && "sel", bad && "illegal", imgOn() && IMG_ART(c.id) && "art"].filter(Boolean).join(" "),
+    style: Object.assign({ "--fc": frameColor(c) }, imgOn() && IMG_ART(c.id) ? Object.assign({ backgroundImage: `url("${IMG_ART(c.id)}")` }, artPos()) : {}),
+    draggable: true, tabindex: 0, title: `${c.name}\nClick to select. Shift-click removes one.`,
+    ondragstart: e => dragData(e, c.id, sec),
+    onclick: e => { if (e.shiftKey) add(c.id, sec, -1); else { S.sel = c.id; renderBuild(); } },
+    onkeydown: e => { if (e.key === "Enter") { S.sel = c.id; renderBuild(); } if (e.key === "Delete" || e.key === "-") add(c.id, sec, -1); if (e.key === "+") add(c.id, sec, 1); } },
+    tags.length ? h("div", { class: "tags" }, tags.map(k => h("i", { style: { background: k.color } }))) : null,
+    h("div", { class: "nm" }, c.name), h("div", { class: "sub" }, isMonster(c) ? subLine(c).replace(c.race, "").replace(/\s+/g, " ") : c.race),
+    h("span", { class: "cnt" }, "×" + n), p ? h("span", { class: "pts" }, p * n + "pt") : null);
+  return t;
+}
+function sectionEl(key, label, extraInfo) {
+  const d = deck();
+  const items = Object.entries(d[key]).map(([id, n]) => [card(id), n]).filter(([c]) => c).sort((a, b) => sortKey(a[0]).localeCompare(sortKey(b[0])));
+  const sec = h("div", { class: "section",
+    ondragover: e => { e.preventDefault(); sec.classList.add("drop"); },
+    ondragleave: () => sec.classList.remove("drop"),
+    ondrop: e => { e.preventDefault(); sec.classList.remove("drop");
+      try { const { id, from } = JSON.parse(e.dataTransfer.getData("text/plain")); if (from === key) return; if (from) move(id, from, key); else add(id, key); } catch {} } },
+    h("div", { class: "section-h" }, h("h2", {}, label), h("span", { class: "dim" }, `${count(d[key])} cards`, extraInfo || "")),
+    h("div", { class: "grid" }, items.length ? items.map(([c, n]) => tile(c, n, key)) : h("div", { class: "empty" }, key === "side" ? "Drag cards here, or Alt-click a search result." : "Click a search result to add it, or drag it here.")));
+  return sec;
+}
+function mainInfo() {
+  const d = deck(); let m = 0, s = 0, t = 0;
+  for (const [id, n] of Object.entries(d.main)) { const c = card(id); if (!c) continue; isMonster(c) ? m += n : isSpell(c) ? s += n : t += n; }
+  return `  (${m} monsters, ${s} spells, ${t} traps)`;
+}
+function renderBuild() {
+  const root = $("#tab-build"), d = deck(), f = fmt();
+  const keepFocus = document.activeElement && document.activeElement.id;
+  if (!$("#results", root)) {
+    const inp = (k, attrs = {}) => h("input", Object.assign({ value: Q[k], oninput: e => { Q[k] = e.target.value; Q.limit = 150; renderResults(); } }, attrs));
+    const sel = (k, opts, attrs = {}) => h("select", Object.assign({ onchange: e => { Q[k] = e.target.value; Q.limit = 150; renderResults(); } }, attrs), opts.map(([v, l]) => h("option", { value: v, selected: Q[k] === v }, l)));
+    const search = h("aside", { class: "panel search" },
+      h("div", { class: "row" }, h("h2", { class: "grow" }, "Search"), h("span", { class: "dim", id: "resCount" })),
+      h("div", { class: "filters" },
+        inp("q", { id: "q", class: "full", placeholder: "Card name", type: "search", "aria-label": "Card name" }),
+        sel("kind", [["all", "All cards"], ["monster", "Main Deck monsters"], ["extra", "Extra Deck"], ["spell", "Spells"], ["trap", "Traps"]], { "aria-label": "Card kind" }),
+        sel("attr", [["", "Any attribute"], ...["DARK","LIGHT","EARTH","WATER","FIRE","WIND","DIVINE"].map(a => [a, a])], { "aria-label": "Attribute" }),
+        sel("race", [["", "Any type"], ...S.races.map(r => [r, r])], { "aria-label": "Monster type" }),
+        inp("arch", { placeholder: "Archetype", "aria-label": "Archetype" }),
+        inp("lvMin", { type: "number", placeholder: "Level from", min: 0, max: 13, "aria-label": "Minimum level" }),
+        inp("lvMax", { type: "number", placeholder: "Level to", min: 0, max: 13, "aria-label": "Maximum level" }),
+        inp("atk", { type: "number", placeholder: "ATK =", step: 50, "aria-label": "ATK" }),
+        inp("def", { type: "number", placeholder: "DEF =", step: 50, "aria-label": "DEF" }),
+        h("label", { class: "row" },
+          h("input", { type: "checkbox", checked: S.ui.textSearch, onchange: e => { S.ui.textSearch = e.target.checked; save(); renderResults(); } }), "Match card text"),
+        h("label", { class: "row" },
+          h("input", { type: "checkbox", checked: Q.legal, onchange: e => { Q.legal = e.target.checked; renderResults(); } }), "Legal only")),
+      h("div", { id: "results", class: "results" }));
+    root.replaceChildren(search, h("div", { id: "deckArea" }), h("aside", { id: "detail", class: "panel detail" }));
+    root.className = "tab on build";
+    renderResults();
+  }
+  // deck area
+  const iss = validate();
+  $("#deckArea", root).replaceChildren(
+    h("div", { class: "deckbar" },
+      h("button", { onclick: () => { const n = newDeck(); S.decks.push(n); S.deckId = n.id; S.sel = null; changed(); } }, "New deck"),
+      h("button", { onclick: () => { const n = prompt("Deck name", d.name); if (n) { d.name = n.trim() || d.name; changed(); } } }, "Rename"),
+      h("button", { onclick: () => { const c = JSON.parse(JSON.stringify(d)); c.id = uid(); c.name = d.name + " (copy)"; S.decks.push(c); S.deckId = c.id; changed(); } }, "Duplicate"),
+      h("button", { onclick: () => { if (!confirm(`Delete "${d.name}"?`)) return; S.decks = S.decks.filter(x => x !== d); if (!S.decks.length) S.decks.push(newDeck()); S.deckId = S.decks[0].id; changed(); } }, "Delete"),
+      h("span", { class: "grow" }),
+      h("button", { onclick: () => $("#fileIn").click() }, "Import .ydk"),
+      h("button", { onclick: exportYdk }, "Export .ydk"),
+      h("button", { onclick: ydkeDialog }, "YDKE"),
+      h("label", { class: "row" }, "Images", imageSelect()),
+      S.ui.img === "folder" && IMGS.needsPermission ? h("button", { class: "small", onclick: async () => { if (await reconnectFolder()) { renderResults(); renderBuild(); } } }, "Reconnect folder") : null),
+    iss.length ? h("ul", { class: "issues", id: "issues" }, iss.map(i => h("li", { class: i.lvl === "warn" ? "warn" : "" }, i.msg))) : null,
+    sectionEl("main", "Main Deck", mainInfo()), sectionEl("extra", "Extra Deck"), sectionEl("side", "Side Deck"));
+  renderDetail();
+  if (keepFocus === "q") $("#q").focus();
+}
+function renderDetail() {
+  const box = $("#detail"); if (!box) return;
+  const c = S.sel && card(S.sel), d = deck(), f = fmt();
+  if (!c) return box.replaceChildren(h("h2", {}, "Card"), h("p", { class: "dim" }, "Select a card in your deck or the search results to see its text, limits and categories."));
+  const sec = isExtra(c) ? "extra" : "main", l = limitOf(c), n = totalCopies(d, c.id);
+  const ban = f.banlist !== "none" ? c.ban[f.banlist] : null;
+  box.replaceChildren(
+    imgOn() && IMG_FULL(c.id) ? h("img", { src: IMG_FULL(c.id), alt: c.name, onerror: hideBroken }) : null,
+    h("h2", {}, c.name),
+    h("div", { class: "typeline" }, [c.type, isMonster(c) ? subLine(c) : null, c.scale != null ? `Scale ${c.scale}` : null, c.arch].filter(Boolean).join(", ")),
+    h("div", { class: "desc" }, c.desc),
+    h("p", {}, h("span", { class: l === 0 ? "bad" : "" }, `Limit ${l}`), ban ? h("span", { class: "dim" }, ` (${ban} on ${f.banlist.toUpperCase()})`) : "",
+      f.over[c.id] != null ? h("span", { class: "dim" }, " (format override)") : "",
+      f.points ? `, ${pointsOf(c)} points` : "", `, ${n} in deck`, !inPool(c) ? h("span", { class: "warn" }, `. Not in the ${f.pool} pool.`) : ""),
+    h("div", { class: "btns" },
+      h("button", { onclick: () => add(c.id, sec) }, `Add to ${sec === "main" ? "Main" : "Extra"}`),
+      h("button", { onclick: () => add(c.id, sec, -1), disabled: !d[sec][c.id] }, `Remove from ${sec === "main" ? "Main" : "Extra"}`),
+      h("button", { onclick: () => add(c.id, "side") }, "Add to Side"),
+      h("button", { onclick: () => add(c.id, "side", -1), disabled: !d.side[c.id] }, "Remove from Side"),
+      h("button", { onclick: () => move(c.id, sec, "side"), disabled: !d[sec][c.id] }, "Move to Side"),
+      h("button", { onclick: () => move(c.id, "side", sec), disabled: !d.side[c.id] }, "Move from Side")),
+    !isExtra(c) ? h("div", {}, h("h3", {}, "Categories"), catChips(c.id), h("p", { class: "dim", style: { fontSize: "12px" } }, "Used by the Hands tab. Edit the category list there.")) : null,
+    isMonster(c) && !isExtra(c) ? h("button", { class: "ghost", style: { marginTop: "8px" }, onclick: () => { if (!d.swPool.includes(c.id)) d.swPool.push(c.id); changed(); toast("Added to Small World pool"); } }, "Add to Small World pool") : null);
+}
+function catChips(id, after) {
+  const d = deck(), cur = d.tags[id] || [];
+  return h("div", { class: "chips" }, d.cats.map(k => h("button", { class: "chip" + (cur.includes(k.id) ? " on" : ""), style: { "--c": k.color }, "aria-pressed": cur.includes(k.id),
+    onclick: () => { const t = new Set(d.tags[id] || []); t.has(k.id) ? t.delete(k.id) : t.add(k.id); d.tags[id] = [...t]; save(); after ? after() : renderBuild(); } }, k.name)));
+}
+
+/* ================= .ydk / ydke ================= */
+function parseYdk(text) {
+  const d = newDeck(), unknown = []; let sec = "main";
+  for (let line of text.split(/\r?\n/)) {
+    line = line.trim(); if (!line) continue;
+    if (/^#main/i.test(line)) { sec = "main"; continue; }
+    if (/^#extra/i.test(line)) { sec = "extra"; continue; }
+    if (/^!side/i.test(line)) { sec = "side"; continue; }
+    if (line.startsWith("#") || line.startsWith("!")) continue;
+    const id = parseInt(line, 10); if (!id) continue;
+    const c = card(id); if (!c) { unknown.push(id); continue; }
+    const s = sec === "side" ? "side" : isExtra(c) ? "extra" : "main";
+    d[s][c.id] = (d[s][c.id] || 0) + 1;
+  }
+  return { d, unknown };
+}
+function importDeck(d, unknown, name) {
+  d.name = name; S.decks.push(d); S.deckId = d.id; S.sel = null; changed();
+  toast(unknown.length ? `Imported, ${unknown.length} unknown id${unknown.length > 1 ? "s" : ""} skipped` : `Imported ${name}`);
+}
+function ydkText(d = deck()) {
+  const ids = sec => Object.entries(d[sec]).map(([id, n]) => [card(id), n]).filter(([c]) => c).sort((a, b) => sortKey(a[0]).localeCompare(sortKey(b[0]))).flatMap(([c, n]) => Array(n).fill(c.id));
+  return ["#created by Deck Forge", "#main", ...ids("main"), "#extra", ...ids("extra"), "!side", ...ids("side"), ""].join("\n");
+}
+function exportYdk() {
+  const a = h("a", { href: URL.createObjectURL(new Blob([ydkText()], { type: "text/plain" })), download: deck().name.replace(/[\\/:*?"<>|]/g, "_") + ".ydk" });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function toYdke(d = deck()) {
+  const enc = sec => { const ids = Object.entries(d[sec]).flatMap(([id, n]) => Array(n).fill(+id)); const u = new Uint32Array(ids); let s = ""; new Uint8Array(u.buffer).forEach(b => s += String.fromCharCode(b)); return btoa(s); };
+  return `ydke://${enc("main")}!${enc("extra")}!${enc("side")}!`;
+}
+function fromYdke(url) {
+  const parts = url.trim().replace(/^ydke:\/\//, "").split("!");
+  const dec = s => { if (!s) return []; const b = atob(s), u8 = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u8[i] = b.charCodeAt(i); return [...new Uint32Array(u8.buffer, 0, u8.length >> 2)]; };
+  const lines = ["#main", ...dec(parts[0]), "#extra", ...dec(parts[1]), "!side", ...dec(parts[2])];
+  return parseYdk(lines.join("\n"));
+}
+function ydkeDialog() {
+  const ta = h("textarea", { readOnly: false }, toYdke());
+  const body = $("#dlgBody");
+  body.replaceChildren(h("h2", {}, "YDKE link"), h("p", { class: "dim" }, "Copy this to share the current deck, or paste a ydke:// link and import it as a new deck."), ta,
+    h("div", { class: "row", style: { marginTop: "10px", justifyContent: "flex-end" } },
+      h("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(ta.value); toast("Copied"); } }, "Copy"),
+      h("button", { type: "button", class: "primary", onclick: () => { try { const { d, unknown } = fromYdke(ta.value); $("#dlg").close(); importDeck(d, unknown, "Imported deck"); } catch { toast("That doesn't look like a ydke:// link"); } } }, "Import as new deck"),
+      h("button", {}, "Close")));
+  $("#dlg").showModal(); ta.select();
+}
+
+/* ================= hand probabilities =================
+   Main deck is partitioned into "atoms": cards with identical category sets.
+   A hand is a vector x of atom counts; P(x) = prod C(n_i, x_i) / C(N, h)
+   (multivariate hypergeometric). We enumerate all x with |x| = h. */
+function handModel(d) {
+  const idx = new Map(d.cats.map((k, i) => [k.id, i])), atoms = new Map(); let N = 0;
+  for (const [id, n] of Object.entries(d.main)) {
+    let mask = 0; for (const t of d.tags[id] || []) if (idx.has(t)) mask |= 1 << idx.get(t);
+    atoms.set(mask, (atoms.get(mask) || 0) + n); N += n;
+  }
+  return { N, idx, k: d.cats.length, atoms: [...atoms].map(([mask, n]) => ({ mask, n })) };
+}
+function enumerateHands(M, hs, visit) {
+  const A = M.atoms, total = binom(M.N, hs); if (!A.length || hs > M.N || hs < 0) return;
+  const x = new Array(A.length).fill(0), cc = new Array(M.k).fill(0);
+  const leaf = w => { cc.fill(0); for (let i = 0; i < A.length; i++) if (x[i]) for (let j = 0; j < M.k; j++) if (A[i].mask >> j & 1) cc[j] += x[i]; visit(cc, w / total); };
+  (function rec(i, left, w) {
+    if (i === A.length - 1) { if (left > A[i].n) return; x[i] = left; leaf(w * binom(A[i].n, left)); return; }
+    const top = Math.min(left, A[i].n);
+    for (let t = 0; t <= top; t++) { x[i] = t; rec(i + 1, left - t, w * binom(A[i].n, t)); }
+    x[i] = 0;
+  })(0, hs, 1);
+}
+const OPS = { ">=": (a, b) => a >= b, "<=": (a, b) => a <= b, "=": (a, b) => a === b };
+function handOdds(d, hs) {
+  const M = handModel(d), scen = d.scen.map(s => s.conds.map(c => ({ j: M.idx.get(c.cat), op: OPS[c.op], n: +c.n })).filter(c => c.j != null));
+  const res = { scen: scen.map(() => 0), any: 0, cat: d.cats.map(() => ({ ge1: 0, ge2: 0, e: 0, zero: 0 })), N: M.N };
+  enumerateHands(M, hs, (cc, p) => {
+    let any = false;
+    scen.forEach((conds, i) => { if (conds.length && conds.every(c => c.op(cc[c.j], c.n))) { res.scen[i] += p; any = true; } });
+    if (any) res.any += p;
+    cc.forEach((v, j) => { const r = res.cat[j]; r.e += v * p; if (v >= 1) r.ge1 += p; if (v >= 2) r.ge2 += p; });
+  });
+  return res;
+}
+function sampleHand(d, hs) {
+  const pile = Object.entries(d.main).flatMap(([id, n]) => Array(n).fill(+id));
+  for (let i = pile.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pile[i], pile[j]] = [pile[j], pile[i]]; }
+  return pile.slice(0, hs);
+}
+
+/* ================= hands tab ================= */
+let lastSample = null;
+function renderHands() {
+  const root = $("#tab-hands"), d = deck(), hs = d.hand;
+  const odds = handOdds(d, hs);
+  const rerender = () => { save(); renderHands(); };
+  // categories
+  const cats = h("div", { class: "panel" },
+    h("h2", {}, "Categories"),
+    h("p", { class: "dim", style: { fontSize: "13px" } }, "A card can belong to several categories. Overlaps are handled exactly."),
+    d.cats.map(k => h("div", { class: "cat-row" },
+      h("input", { type: "color", value: k.color, "aria-label": "Colour", oninput: e => { k.color = e.target.value; save(); }, onchange: rerender }),
+      h("input", { value: k.name, class: "grow", "aria-label": "Category name", onchange: e => { k.name = e.target.value || k.name; rerender(); } }),
+      h("button", { class: "small ghost", title: "Delete category", onclick: () => {
+        d.cats = d.cats.filter(x => x !== k); for (const id in d.tags) d.tags[id] = d.tags[id].filter(t => t !== k.id);
+        d.scen.forEach(s => s.conds = s.conds.filter(c => c.cat !== k.id)); rerender(); } }, "✕"))),
+    h("button", { onclick: () => { d.cats.push({ id: uid(), name: "New category", color: "#" + Math.floor(0x555555 + Math.random() * 0xaaaaaa).toString(16).slice(0, 6) }); rerender(); } }, "Add category"),
+    h("h3", { style: { marginTop: "16px" } }, "Hand size"),
+    h("div", { class: "row" },
+      h("div", { class: "seg" }, [[5, "Going first"], [6, "Going second"]].map(([n, l]) => h("button", { "aria-pressed": hs === n, onclick: () => { d.hand = n; rerender(); } }, l))),
+      h("input", { type: "number", min: 1, max: 20, value: hs, style: { width: "64px" }, "aria-label": "Hand size", onchange: e => { d.hand = Math.max(1, +e.target.value || 5); rerender(); } })),
+    h("h3", { style: { marginTop: "16px" } }, "Per category"),
+    h("table", {}, h("tr", {}, h("th", {}, ""), h("th", { class: "num" }, "copies"), h("th", { class: "num" }, "≥1"), h("th", { class: "num" }, "≥2"), h("th", { class: "num" }, "avg")),
+      d.cats.map((k, j) => {
+        const copies = Object.entries(d.main).reduce((a, [id, n]) => a + ((d.tags[id] || []).includes(k.id) ? n : 0), 0), r = odds.cat[j];
+        return h("tr", {}, h("td", {}, h("span", { style: { color: k.color } }, "● "), k.name), h("td", { class: "num" }, copies),
+          h("td", { class: "num" }, pct(r.ge1)), h("td", { class: "num" }, pct(r.ge2)), h("td", { class: "num" }, r.e.toFixed(2)));
+      })));
+  // assignment
+  const rows = Object.entries(d.main).map(([id, n]) => [card(id), n]).filter(([c]) => c).sort((a, b) => sortKey(a[0]).localeCompare(sortKey(b[0])));
+  const assign = h("div", { class: "panel" },
+    h("h2", {}, "Tag your Main Deck"),
+    rows.length ? h("table", {}, rows.map(([c, n]) => h("tr", {},
+      h("td", { style: { width: "40%" } }, h("span", { style: { color: frameColor(c) } }, "▍"), c.name, h("span", { class: "dim" }, ` ×${n}`)),
+      h("td", {}, catChips(c.id, rerender)))))
+      : h("p", { class: "dim" }, "Your Main Deck is empty. Add cards in the Build tab, then tag them here."));
+  // scenarios
+  const catOpts = sel => d.cats.map(k => h("option", { value: k.id, selected: k.id === sel }, k.name));
+  const scen = h("div", { class: "panel" },
+    h("h2", {}, "Hands you want"),
+    h("p", { class: "dim", style: { fontSize: "13px" } }, `Each scenario needs all of its conditions. Drawing ${hs} from ${odds.N} cards.`),
+    h("div", { class: "row", style: { margin: "8px 0 12px" } }, h("div", { class: "big" }, odds.N >= hs && d.scen.length ? pct(odds.any) : "–"), h("div", { class: "dim" }, "chance to open at least one of these scenarios")),
+    d.scen.map((s, i) => h("div", { class: "scen" },
+      h("div", { class: "row" }, h("input", { value: s.name, class: "grow", "aria-label": "Scenario name", onchange: e => { s.name = e.target.value; save(); } }),
+        h("span", { class: "p" }, odds.N >= hs && s.conds.length ? pct(odds.scen[i]) : "–"),
+        h("button", { class: "small ghost", title: "Delete scenario", onclick: () => { d.scen.splice(i, 1); rerender(); } }, "✕")),
+      s.conds.map((c, ci) => h("div", { class: "cond" },
+        h("select", { onchange: e => { c.cat = e.target.value; rerender(); }, "aria-label": "Category" }, catOpts(c.cat)),
+        h("select", { onchange: e => { c.op = e.target.value; rerender(); }, "aria-label": "Comparison" }, [[">=", "at least"], ["<=", "at most"], ["=", "exactly"]].map(([v, l]) => h("option", { value: v, selected: c.op === v }, l))),
+        h("input", { type: "number", min: 0, max: 20, value: c.n, style: { width: "56px" }, "aria-label": "Count", onchange: e => { c.n = Math.max(0, +e.target.value || 0); rerender(); } }),
+        h("button", { class: "small ghost", title: "Remove condition", onclick: () => { s.conds.splice(ci, 1); rerender(); } }, "✕"))),
+      d.cats.length ? h("button", { class: "small", onclick: () => { s.conds.push({ cat: d.cats[0].id, op: ">=", n: 1 }); rerender(); } }, "Add condition") : null)),
+    h("button", { onclick: () => { d.scen.push({ id: uid(), name: "New scenario", conds: d.cats.length ? [{ cat: d.cats[0].id, op: ">=", n: 1 }] : [] }); rerender(); } }, "Add scenario"),
+    h("h3", { style: { marginTop: "18px" } }, "Test hand"),
+    h("button", { disabled: odds.N < hs, onclick: () => { lastSample = sampleHand(d, hs); renderHands(); } }, "Draw a hand"),
+    lastSample ? h("div", { class: "hand-sample" }, lastSample.map(id => card(id)).filter(Boolean).map(c => tile(c, 1, "main"))) : null);
+  root.className = "tab on hands"; root.replaceChildren(cats, assign, scen);
+  $$(".hand-sample .cnt", root).forEach(e => e.remove());
+}
+
+/* ================= stats tab ================= */
+function bars(title, entries, color) {
+  const max = Math.max(1, ...entries.map(e => e[1]));
+  return h("div", { class: "panel bars" }, h("h2", { style: { marginBottom: "8px" } }, title),
+    entries.length ? entries.map(([label, v, col]) => h("div", { class: "b" }, h("span", { title: label }, label),
+      h("div", { class: "track" }, h("i", { style: { width: 100 * v / max + "%", background: col || color || "var(--gold)" } })), h("span", { class: "num" }, v)))
+      : h("p", { class: "dim" }, "Nothing to show yet."));
+}
+function tally(sec, keyFn, filter = () => true) {
+  const m = new Map();
+  for (const [id, n] of Object.entries(sec)) { const c = card(id); if (!c || !filter(c)) continue; const k = keyFn(c); if (k == null) continue; m.set(k, (m.get(k) || 0) + n); }
+  return [...m].sort((a, b) => b[1] - a[1]);
+}
+function renderStats() {
+  const root = $("#tab-stats"), d = deck(), f = fmt(), N = count(d.main);
+  const mainMon = c => isMonster(c);
+  const kinds = [["Monsters", 0, "var(--f-effect)"], ["Spells", 0, "var(--f-spell)"], ["Traps", 0, "var(--f-trap)"]];
+  for (const [id, n] of Object.entries(d.main)) { const c = card(id); if (c) kinds[isMonster(c) ? 0 : isSpell(c) ? 1 : 2][1] += n; }
+  const extra = tally(d.extra, c => baseFrame(c)[0].toUpperCase() + baseFrame(c).slice(1)).map(([k, v]) => [k, v, `var(--f-${k.toLowerCase()})`]);
+  const lv = tally(d.main, c => c.level, mainMon).sort((a, b) => a[0] - b[0]).map(([k, v]) => ["Level " + k, v]);
+  const atkBands = tally(d.main, c => c.atk == null || c.atk < 0 ? "?" : c.atk < 1000 ? "0–950" : c.atk < 2000 ? "1000–1950" : c.atk < 3000 ? "2000–2950" : "3000+", mainMon)
+    .sort((a, b) => ["?", "0–950", "1000–1950", "2000–2950", "3000+"].indexOf(a[0]) - ["?", "0–950", "1000–1950", "2000–2950", "3000+"].indexOf(b[0]));
+  const openRows = Object.entries(d.main).map(([id, n]) => [card(id), n]).filter(([c]) => c).sort((a, b) => b[1] - a[1] || a[0].name.localeCompare(b[0].name));
+  const pOpen = (n, hs) => N >= hs ? 1 - binom(N - n, hs) / binom(N, hs) : 0;
+  const panels = [
+    bars(`Main Deck (${N})`, kinds.filter(k => k[1])),
+    bars(`Extra Deck (${count(d.extra)})`, extra),
+    bars("Attributes", tally(d.main, c => c.attr, mainMon)),
+    bars("Monster types", tally(d.main, c => c.race, mainMon)),
+    bars("Levels", lv),
+    bars("ATK", atkBands),
+    bars("Spell and Trap kinds", tally(d.main, c => `${c.race} ${isSpell(c) ? "Spell" : "Trap"}`, c => !isMonster(c)))
+  ];
+  if (f.points) {
+    const pts = [];
+    for (const s of ["main", "extra", "side"]) for (const [id, n] of Object.entries(d[s])) { const c = card(id); if (c && pointsOf(c)) pts.push([`${c.name}${s === "side" ? " (side)" : ""}`, n * pointsOf(c)]); }
+    panels.unshift(bars(`${f.name} points (${deckPoints()}/${f.cap})`, pts.sort((a, b) => b[1] - a[1]), "var(--gold)"));
+  }
+  panels.push(h("div", { class: "panel", style: { gridColumn: "1/-1" } }, h("h2", {}, "Chance to open a copy"),
+    openRows.length ? h("table", {}, h("tr", {}, h("th", {}, "Card"), h("th", { class: "num" }, "copies"), h("th", { class: "num" }, "5 cards"), h("th", { class: "num" }, "6 cards")),
+      openRows.map(([c, n]) => h("tr", {}, h("td", {}, h("span", { style: { color: frameColor(c) } }, "▍"), c.name), h("td", { class: "num" }, n), h("td", { class: "num" }, pct(pOpen(n, 5))), h("td", { class: "num" }, pct(pOpen(n, 6))))))
+      : h("p", { class: "dim" }, "Add cards to your Main Deck to see opening odds.")));
+  root.className = "tab on stats"; root.replaceChildren(...panels);
+}
+
+/* ================= small world ================= */
+const SW = { view: "graph", hand: null, target: null, sim: null, hover: null };
+const ATTR_COL = { DARK: "#8e6bc9", LIGHT: "#e8d77a", EARTH: "#a47a4e", WATER: "#4f9ad8", FIRE: "#e0664a", WIND: "#6cc58b", DIVINE: "#e6c878" };
+const statOk = v => v != null && v >= 0;
+function swShared(a, b) {
+  const s = [];
+  if (a.race === b.race) s.push("Type");
+  if (a.attr === b.attr) s.push("Attribute");
+  if (a.level != null && a.level === b.level) s.push("Level");
+  if (statOk(a.atk) && a.atk === b.atk) s.push("ATK");
+  if (statOk(a.def) && a.def === b.def) s.push("DEF");
+  return s;
+}
+function swPool(d = deck()) {
+  const ids = new Set();
+  for (const id of Object.keys(d.main)) { const c = card(id); if (c && isMonster(c) && !isExtra(c)) ids.add(c.id); }
+  for (const id of d.swPool) { const c = card(id); if (c) ids.add(c.id); }
+  return [...ids].map(card).sort((a, b) => a.name.localeCompare(b.name));
+}
+function swAdj(P) {
+  const n = P.length, A = Array.from({ length: n }, () => new Array(n).fill(null));
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) { const s = swShared(P[i], P[j]); if (s.length === 1) A[i][j] = A[j][i] = s[0]; }
+  return A;
+}
+// bridges(i -> k) = { j : A[i][j] && A[j][k] }  (entries of A^2)
+function bridges(P, A, i, k) { const out = []; for (let j = 0; j < P.length; j++) if (A[i][j] && A[j][k]) out.push(j); return out; }
+
+function renderSW() {
+  const root = $("#tab-sw"), d = deck(), P = swPool(d), A = swAdj(P);
+  const ix = new Map(P.map((c, i) => [c.id, i]));
+  if (SW.hand != null && !ix.has(SW.hand)) SW.hand = null;
+  if (SW.target != null && !ix.has(SW.target)) SW.target = null;
+  const setView = v => { SW.view = v; renderSW(); };
+  let main;
+  if (!P.length) main = h("div", { class: "panel" }, h("h2", {}, "No monsters yet"), h("p", { class: "dim" }, "The graph uses the Main Deck monsters in this deck, plus any extras you add to the pool on the right."));
+  else if (SW.view === "graph") { const cv = h("canvas", { "aria-label": "Small World graph" }); main = h("div", { class: "panel" }, cv, h("p", { class: "dim", style: { fontSize: "12px", margin: "6px 0 0" } }, "Nodes are coloured by Attribute. Click a monster to reveal it from hand: gold rings mark every card it can reach. Drag to rearrange.")); requestAnimationFrame(() => startGraph(cv, P, A)); }
+  else {
+    const M = P.map((_, i) => P.map((_, k) => bridges(P, A, i, k).length)), mx = Math.max(1, ...M.flat());
+    main = h("div", { class: "panel" }, h("p", { class: "dim", style: { fontSize: "13px", marginTop: 0 } }, "Rows: revealed from hand. Columns: card added from Deck. Each entry counts the bridges, i.e. the matrix A² of the Small World graph."),
+      h("div", { class: "matrix-wrap" }, h("table", { class: "matrix" },
+        h("tr", {}, h("th", {}), P.map(c => h("th", { class: "ch", title: c.name }, c.name))),
+        P.map((c, i) => h("tr", {}, h("th", { class: "rh", title: c.name }, c.name), P.map((t, k) => h("td", {
+          style: { background: M[i][k] ? `rgba(201,164,76,${0.18 + 0.82 * M[i][k] / mx})` : "transparent", color: M[i][k] / mx > .5 ? "#241c08" : "" },
+          title: `${c.name} → ${t.name}: ${M[i][k]} bridge${M[i][k] === 1 ? "" : "s"}`,
+          onclick: () => { SW.hand = c.id; SW.target = t.id; renderSW(); } }, M[i][k] || "")))))));
+  }
+  // side panel: bridge finder
+  const opt = (sel) => [h("option", { value: "" }, "Choose a monster"), ...P.map(c => h("option", { value: c.id, selected: c.id === sel }, c.name))];
+  let found = null;
+  if (SW.hand != null) {
+    const i = ix.get(SW.hand);
+    if (SW.target != null) {
+      const k = ix.get(SW.target), br = bridges(P, A, i, k);
+      found = br.length ? br.map(j => h("div", { class: "bridge" }, h("b", {}, P[j].name), h("div", { class: "dim" }, `${A[i][j]} with ${P[i].name}, ${A[j][k]} with ${P[k].name}`)))
+        : h("p", { class: "dim" }, "No bridge in this pool connects these two.");
+    } else {
+      const reach = P.map((c, k) => [c, bridges(P, A, i, k)]).filter(([, b]) => b.length).sort((a, b) => b[1].length - a[1].length);
+      found = reach.length ? [h("p", { class: "dim" }, `${reach.length} reachable card${reach.length > 1 ? "s" : ""}. Click one to see its bridges.`),
+        ...reach.map(([c, b]) => h("div", { class: "bridge", style: { cursor: "pointer" }, onclick: () => { SW.target = c.id; renderSW(); } }, h("b", {}, c.name), h("span", { class: "dim" }, `  via ${b.map(j => P[j].name).join(", ")}`)))]
+        : h("p", { class: "dim" }, "Nothing is reachable from this card in the current pool.");
+    }
+  }
+  const poolExtras = d.swPool.map(card).filter(Boolean);
+  const side = h("aside", { class: "panel" },
+    h("h2", {}, "Bridge finder"),
+    h("label", { class: "dim", style: { fontSize: "12px" } }, "Reveal from hand"), h("select", { style: { width: "100%" }, onchange: e => { SW.hand = e.target.value ? +e.target.value : null; renderSW(); } }, opt(SW.hand)),
+    h("label", { class: "dim", style: { fontSize: "12px", display: "block", marginTop: "6px" } }, "Add from Deck"), h("select", { style: { width: "100%" }, onchange: e => { SW.target = e.target.value ? +e.target.value : null; renderSW(); } }, opt(SW.target)),
+    h("div", { style: { marginTop: "10px" } }, found),
+    h("h3", { style: { marginTop: "18px" } }, "Pool extras"),
+    h("p", { class: "dim", style: { fontSize: "12px" } }, "Monsters you're considering that aren't in the Main Deck yet."),
+    cardPicker(c => { if (isMonster(c) && !isExtra(c) && !d.swPool.includes(c.id)) { d.swPool.push(c.id); save(); renderSW(); } }, c => isMonster(c) && !isExtra(c)),
+    poolExtras.map(c => h("div", { class: "row", style: { marginTop: "4px" } }, h("span", { class: "grow" }, c.name), h("button", { class: "small ghost", title: "Remove from pool", onclick: () => { d.swPool = d.swPool.filter(x => x !== c.id); save(); renderSW(); } }, "✕"))));
+  root.className = "tab on";
+  root.replaceChildren(h("div", { class: "row", style: { marginBottom: "10px" } },
+    h("div", { class: "seg" }, [["graph", "Graph"], ["matrix", "Bridge matrix"]].map(([v, l]) => h("button", { "aria-pressed": SW.view === v, onclick: () => setView(v) }, l))),
+    h("span", { class: "dim" }, `${P.length} monsters, ${A.flat().filter(Boolean).length / 2} links`)),
+  h("div", { class: "sw" }, main, side));
+}
+function cardPicker(onPick, filter = () => true) {
+  const inp = h("input", { placeholder: "Search a card", style: { width: "100%" }, "aria-label": "Search a card" }), menu = h("div", { class: "menu", hidden: true });
+  inp.addEventListener("input", () => {
+    const q = inp.value.toLowerCase().trim(); if (q.length < 2) { menu.hidden = true; return; }
+    const hits = []; for (const c of S.list) { if (c.name.toLowerCase().includes(q) && filter(c)) { hits.push(c); if (hits.length >= 12) break; } }
+    menu.replaceChildren(...hits.map(c => h("div", { onmousedown: e => { e.preventDefault(); onPick(c); inp.value = ""; menu.hidden = true; } }, c.name)));
+    menu.hidden = !hits.length;
+  });
+  inp.addEventListener("blur", () => setTimeout(() => menu.hidden = true, 150));
+  return h("div", { class: "sugg" }, inp, menu);
+}
+function startGraph(cv, P, A) {
+  if (SW.sim) cancelAnimationFrame(SW.sim.raf);
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const old = SW.sim && SW.sim.pos || new Map();
+  const N = P.map((c, i) => { const o = old.get(c.id); const a = 2 * Math.PI * i / P.length;
+    return { c, x: o ? o.x : W / 2 + Math.cos(a) * W / 3, y: o ? o.y : H / 2 + Math.sin(a) * H / 3, vx: 0, vy: 0 }; });
+  const E = []; for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) if (A[i][j]) E.push([i, j, A[i][j]]);
+  const hi = SW.hand != null ? P.findIndex(c => c.id === SW.hand) : -1;
+  const reach = new Set(); if (hi >= 0) for (let k = 0; k < P.length; k++) if (bridges(P, A, hi, k).length) reach.add(k);
+  const sim = SW.sim = { raf: 0, heat: old.size ? 0.4 : 1, drag: null, hover: -1, pos: new Map() };
+  const step = () => {
+    const k = sim.heat, rep = 22000 * Math.max(0.5, Math.min(1.5, 30 / Math.max(1, N.length)));
+    for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+      const a = N[i], b = N[j]; let dx = a.x - b.x, dy = a.y - b.y; const d2 = Math.max(100, dx * dx + dy * dy), d = Math.sqrt(d2), f = rep / d2 * k;
+      dx /= d; dy /= d; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    for (const [i, j] of E) { const a = N[i], b = N[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, f = 0.04 * (d - 120) * k;
+      a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f; }
+    for (const n of N) {
+      if (sim.drag === n) { n.vx = n.vy = 0; continue; }
+      n.vx += (W / 2 - n.x) * 0.006 * k; n.vy += (H / 2 - n.y) * 0.006 * k;
+      n.vx *= 0.6; n.vy *= 0.6; n.x = Math.max(20, Math.min(W - 20, n.x + n.vx)); n.y = Math.max(20, Math.min(H - 34, n.y + n.vy)); }
+    sim.heat = Math.max(0.02, sim.heat * 0.99);
+  };
+  const draw = () => {
+    g.clearRect(0, 0, W, H);
+    const hv = sim.hover, focus = hv >= 0 ? hv : hi;
+    for (const [i, j, lab] of E) {
+      const on = focus >= 0 && (i === focus || j === focus);
+      g.strokeStyle = on ? "rgba(230,200,120,.9)" : focus >= 0 ? "rgba(155,162,184,.12)" : "rgba(155,162,184,.35)";
+      g.lineWidth = on ? 1.8 : 1; g.beginPath(); g.moveTo(N[i].x, N[i].y); g.lineTo(N[j].x, N[j].y); g.stroke();
+      if (on) { g.fillStyle = "#e6c878"; g.font = "11px system-ui"; g.textAlign = "center"; g.fillText(lab, (N[i].x + N[j].x) / 2, (N[i].y + N[j].y) / 2 - 3); }
+    }
+    N.forEach((n, i) => {
+      g.beginPath(); g.arc(n.x, n.y, 9, 0, 2 * Math.PI); g.fillStyle = ATTR_COL[n.c.attr] || "#999"; g.fill();
+      if (reach.has(i)) { g.lineWidth = 3; g.strokeStyle = "#e6c878"; g.beginPath(); g.arc(n.x, n.y, 13, 0, 2 * Math.PI); g.stroke(); }
+      if (i === hi) { g.lineWidth = 2; g.strokeStyle = "#fff"; g.beginPath(); g.arc(n.x, n.y, 16, 0, 2 * Math.PI); g.stroke(); }
+      g.fillStyle = i === focus || reach.has(i) || focus < 0 ? "#ece6d6" : "rgba(236,230,214,.35)";
+      g.font = (i === focus ? "600 " : "") + "12px system-ui"; g.textAlign = "center"; g.fillText(n.c.name.length > 26 ? n.c.name.slice(0, 25) + "…" : n.c.name, n.x, n.y + 24);
+    });
+  };
+  const loop = () => { if (!cv.isConnected) return; if (sim.heat > 0.03 || sim.drag) step(); draw(); N.forEach(n => sim.pos.set(n.c.id, { x: n.x, y: n.y })); sim.raf = requestAnimationFrame(loop); };
+  const at = e => { const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top; return N.findIndex(n => (n.x - x) ** 2 + (n.y - y) ** 2 < 180); };
+  let downAt = null;
+  cv.onpointerdown = e => { const i = at(e); downAt = { x: e.clientX, y: e.clientY, i }; if (i >= 0) { sim.drag = N[i]; cv.setPointerCapture(e.pointerId); } };
+  cv.onpointermove = e => { const r = cv.getBoundingClientRect();
+    if (sim.drag) { sim.drag.x = e.clientX - r.left; sim.drag.y = e.clientY - r.top; sim.heat = Math.max(sim.heat, 0.3); }
+    else sim.hover = at(e); };
+  cv.onpointerup = e => { const moved = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4;
+    if (downAt && !moved) { const i = downAt.i; SW.hand = i >= 0 && P[i].id !== SW.hand ? P[i].id : null; SW.target = null; sim.drag = null; renderSW(); return; }
+    sim.drag = null; downAt = null; };
+  cv.onpointerleave = () => sim.hover = -1;
+  loop();
+}
+
+/* ================= format tab ================= */
+function renderFormat() {
+  const root = $("#tab-format"), f = fmt();
+  const upd = () => { save(); renderHeader(); renderFormat(); renderResults(); };
+  const num = (k, attrs = {}) => h("input", Object.assign({ type: "number", value: f[k], min: 0, onchange: e => { f[k] = Math.max(0, +e.target.value || 0); upd(); } }, attrs));
+  const list = h("aside", { class: "panel" }, h("h2", {}, "Formats"),
+    S.formats.map(x => h("div", { class: "list-item" + (x.id === f.id ? " on" : ""), tabindex: 0, onclick: () => { S.fmtId = x.id; upd(); }, onkeydown: e => e.key === "Enter" && e.target.click() },
+      h("span", {}, x.name), h("span", { class: "dim", style: { fontSize: "12px" } }, x.points ? `${x.cap} pts` : x.banlist === "none" ? "no list" : x.banlist.toUpperCase()))),
+    h("h3", { style: { marginTop: "14px" } }, "New from preset"),
+    h("div", { class: "row" }, Object.keys(PRESETS).map(p => h("button", { class: "small", onclick: () => { const n = newFormat(p, uniqueName(p)); S.formats.push(n); S.fmtId = n.id; upd(); } }, p))),
+    h("h3", { style: { marginTop: "18px" } }, "Card images"),
+    h("div", {}, imageSelect()),
+    S.ui.img === "folder" ? h("div", { style: { marginTop: "6px" } },
+      h("p", { class: "dim", style: { fontSize: "12px" } }, IMGS.urls.size ? `${IMGS.urls.size} images from your folder.` : IMGS.needsPermission ? "Your browser needs permission to read the folder again." : "No folder chosen yet.",
+        " Files named by passcode (e.g. EDOPro's pics folder). They stay on your computer."),
+      h("button", { class: "small", onclick: async () => { const ok = IMGS.needsPermission ? await reconnectFolder() : await pickFolder(); if (ok) toast(`${IMGS.urls.size} images found`); renderFormat(); } },
+        IMGS.needsPermission ? "Reconnect folder" : IMGS.urls.size ? "Choose another folder" : "Choose folder")) : null,
+    S.ui.img === "path" ? h("div", { style: { marginTop: "6px" } },
+      h("label", { class: "dim", style: { fontSize: "12px" } }, "Full card image URL"),
+      h("input", { style: { width: "100%" }, value: S.ui.imgTpl, onchange: e => { S.ui.imgTpl = e.target.value.trim() || "pics/{id}.jpg"; save(); } }),
+      h("label", { class: "dim", style: { fontSize: "12px", display: "block", marginTop: "4px" } }, "Cropped art URL (optional)"),
+      h("input", { style: { width: "100%" }, value: S.ui.artTpl, placeholder: "e.g. art/{id}.jpg", onchange: e => { S.ui.artTpl = e.target.value.trim(); save(); } }),
+      h("p", { class: "dim", style: { fontSize: "12px" } }, "Relative to this page, or a full URL to images you host. {id} is the passcode.")) : null,
+    h("h3", { style: { marginTop: "18px" } }, "Card data"),
+    h("p", { class: "dim", style: { fontSize: "13px" } }, S.meta ? `${S.meta.n} cards, built ${new Date(S.meta.fetched).toLocaleString()}${S.meta.source ? ` from YGOPRODeck database v${S.meta.source}` : ""}. Points lists: ${Object.keys(S.gp).length} Genesys, ${Object.keys(S.gpo).length} Genesys OCG.` : "Not loaded yet."),
+    (() => {
+      const st = h("p", { class: "dim", style: { fontSize: "12px" } });
+      const file = h("input", { type: "file", accept: ".json,application/json", hidden: true, onchange: async e => { const f = e.target.files[0]; if (!f) return;
+        try { await loadDataFile(f); st.textContent = "Loaded."; changed(); } catch (err) { st.textContent = `Couldn't load it: ${err.message}.`; } } });
+      return [h("div", { class: "row" },
+        h("button", { class: "small", onclick: async () => { st.textContent = "Checking…";
+          try { const r = await syncData(m => st.textContent = m); st.textContent = !r.reachable ? `Can't reach data/meta.json (${r.err}).` : r.updated ? "Updated." : "Already up to date."; if (r.updated) changed(); }
+          catch (err) { st.textContent = `Update failed: ${err.message}`; } } }, "Check for updates"),
+        h("button", { class: "small", onclick: () => file.click() }, "Load cards.json")), st, file];
+    })(),
+    h("p", { class: "dim", style: { fontSize: "11px", marginTop: "18px" } }, "Card data from YGOPRODeck. Yu-Gi-Oh! card text and images are copyright 4K Media Inc., a subsidiary of Konami Digital Entertainment. Deck Forge is not affiliated with either."));
+  const overRows = Object.keys({ ...f.over, ...f.pover }).map(id => card(id)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+  const editor = h("div", { class: "panel" },
+    h("div", { class: "row", style: { marginBottom: "12px" } }, h("h2", { class: "grow" }, f.name),
+      h("button", { onclick: () => { const c = JSON.parse(JSON.stringify(f)); c.id = uid(); c.name = uniqueName(f.name + " copy"); S.formats.push(c); S.fmtId = c.id; upd(); } }, "Duplicate"),
+      h("button", { disabled: S.formats.length < 2, onclick: () => { if (!confirm(`Delete format "${f.name}"?`)) return; S.formats = S.formats.filter(x => x !== f); S.fmtId = S.formats[0].id; upd(); } }, "Delete")),
+    h("div", { class: "form" },
+      h("label", {}, "Name"), h("input", { value: f.name, onchange: e => { f.name = e.target.value.trim() || f.name; upd(); } }),
+      h("label", {}, "Main Deck size"), h("div", { class: "row" }, num("min", { style: { width: "80px" }, "aria-label": "Minimum" }), "to", num("max", { style: { width: "80px" }, "aria-label": "Maximum" })),
+      h("label", {}, "Extra Deck max"), num("extraMax"),
+      h("label", {}, "Side Deck max"), num("sideMax"),
+      h("label", {}, "Copies per card"), num("copies", { max: 60 }),
+      h("label", {}, "Forbidden & Limited list"), h("select", { onchange: e => { f.banlist = e.target.value; upd(); } },
+        [["none", "None"], ["tcg", "TCG (current)"], ["ocg", "OCG (current)"], ["goat", "Goat"]].map(([v, l]) => h("option", { value: v, selected: f.banlist === v }, l))),
+      h("label", {}, "Card pool"), h("select", { onchange: e => { f.pool = e.target.value; upd(); } },
+        [["any", "Any card"], ["TCG", "TCG"], ["OCG", "OCG"], ["GOAT", "Goat"], ["Edison", "Edison"], ["Master Duel", "Master Duel"], ["Duel Links", "Duel Links"]].map(([v, l]) => h("option", { value: v, selected: f.pool === v }, l))),
+      h("label", {}, "Ban Link & Pendulum"), h("label", { class: "row" }, h("input", { type: "checkbox", checked: f.noLinkPend, onchange: e => { f.noLinkPend = e.target.checked; upd(); } }), h("span", { class: "dim" }, "Genesys rule")),
+      h("label", {}, "Points"), h("label", { class: "row" }, h("input", { type: "checkbox", checked: f.points, onchange: e => { f.points = e.target.checked; upd(); } }), "Count points"),
+      h("label", {}, "Points list"), h("select", { disabled: !f.points, onchange: e => { f.pointsList = e.target.value; upd(); } },
+        [["gp", "Genesys"], ["gpo", "Genesys OCG"]].map(([v, l]) => h("option", { value: v, selected: f.pointsList === v }, l))),
+      h("label", {}, "Point cap"), num("cap", { disabled: !f.points })),
+    h("h3", { style: { marginTop: "20px" } }, "Card overrides"),
+    h("p", { class: "dim", style: { fontSize: "13px", maxWidth: "65ch" } }, "Set your own limit or point value for any card. Overrides win over the list above; leave a field blank to use the list's value. Handy for house rules, unreleased lists, or testing a hit."),
+    h("div", { style: { maxWidth: "360px", marginBottom: "10px" } }, cardPicker(c => { if (f.over[c.id] == null && f.pover[c.id] == null) f.over[c.id] = limitOf(c); upd(); })),
+    overRows.length ? h("table", { style: { maxWidth: "620px" } },
+      h("tr", {}, h("th", {}, "Card"), h("th", {}, "Limit"), h("th", {}, "Points"), h("th", {})),
+      overRows.map(c => h("tr", {}, h("td", {}, c.name),
+        h("td", {}, h("input", { type: "number", min: 0, max: 60, style: { width: "70px" }, value: f.over[c.id] ?? "", placeholder: String((() => { const o = f.over[c.id]; delete f.over[c.id]; const l = limitOf(c); if (o != null) f.over[c.id] = o; return l; })()),
+          "aria-label": "Limit override", onchange: e => { e.target.value === "" ? delete f.over[c.id] : f.over[c.id] = Math.max(0, +e.target.value); upd(); } })),
+        h("td", {}, h("input", { type: "number", min: 0, style: { width: "70px" }, value: f.pover[c.id] ?? "", placeholder: String((S[f.pointsList] || {})[c.id] || 0),
+          "aria-label": "Points override", onchange: e => { e.target.value === "" ? delete f.pover[c.id] : f.pover[c.id] = Math.max(0, +e.target.value); upd(); } })),
+        h("td", {}, h("button", { class: "small ghost", title: "Remove override", onclick: () => { delete f.over[c.id]; delete f.pover[c.id]; upd(); } }, "✕")))))
+      : h("p", { class: "dim" }, "No overrides yet."));
+  root.className = "tab on fmt"; root.replaceChildren(list, editor);
+}
+function uniqueName(base) { let n = base, i = 2; while (S.formats.some(f => f.name === n)) n = `${base} ${i++}`; return n; }
+
+/* ================= init ================= */
+async function init() {
+  S.decks = LS.get("decks", []); S.formats = LS.get("formats", []);
+  if (!S.decks.length) S.decks.push(newDeck("My deck"));
+  if (!S.formats.length) S.formats.push(newFormat("TCG"), newFormat("Genesys"), newFormat("Unlimited"));
+  for (const d of S.decks) { d.swPool ||= []; d.tags ||= {}; d.cats ||= []; d.scen ||= []; d.hand ||= 5; }
+  for (const f of S.formats) { f.over ||= {}; f.pover ||= {}; }
+  if (S.ui.img === "local") S.ui.img = "path"; else if (!["off", "folder", "path"].includes(S.ui.img)) S.ui.img = "off";
+  const cur = LS.get("cur", {});
+  S.deckId = S.decks.some(d => d.id === cur.deck) ? cur.deck : S.decks[0].id;
+  S.fmtId = S.formats.some(f => f.id === cur.fmt) ? cur.fmt : S.formats[0].id;
+  $("#tabs").addEventListener("click", e => { const t = e.target.closest("button"); if (t) setTab(t.dataset.tab); });
+  $("#deckSel").onchange = e => { S.deckId = e.target.value; S.sel = null; lastSample = null; changed(); };
+  $("#fmtSel").onchange = e => { S.fmtId = e.target.value; changed(); renderResults(); };
+  $("#ptsToggle").onchange = e => { fmt().points = e.target.checked; changed(); renderResults(); };
+  $("#legalPill").onclick = () => { if (S.tab !== "build") setTab("build"); setTimeout(() => $("#issues")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); };
+  $("#fileIn").onchange = async e => { const file = e.target.files[0]; if (!file) return;
+    const { d, unknown } = parseYdk(await file.text()); importDeck(d, unknown, file.name.replace(/\.ydk$/i, "")); e.target.value = ""; };
+  document.addEventListener("dragover", e => e.preventDefault());
+  document.addEventListener("drop", async e => { const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f && /\.ydk$/i.test(f.name)) { e.preventDefault(); const { d, unknown } = parseYdk(await f.text()); importDeck(d, unknown, f.name.replace(/\.ydk$/i, "")); } });
+  await idb.open();
+  await loadDB();
+  await restoreFolder();
+  renderHeader(); setTab(cur.tab || "build");
+  // quiet background check: a tiny meta.json request, full download only when the data changed
+  syncData().then(r => { if (r.updated) { toast(`Card data updated (${S.meta.n} cards)`); changed(); } }).catch(e => console.warn(e));
+}
+init();
+</script>
+</body>
+</html>

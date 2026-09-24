@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+// Builds data/cards.json and data/meta.json from the YGOPRODeck API.
+//
+// Polite by design (https://ygoprodeck.com/api-guide/):
+//  * asks checkDBVer.php first and stops if nothing changed;
+//  * otherwise makes 3 requests, one second apart (limit is 20/s);
+//  * refreshes anyway once a week, in case point lists change without a version bump.
+//
+// Usage: node scripts/update-cards.mjs [--force]      (Node 18+)
+
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+
+const API = "https://db.ygoprodeck.com/api/v7/";
+const OUT = new URL("../data/", import.meta.url);
+const WEEK = 7 * 24 * 3600 * 1000;
+const force = process.argv.includes("--force");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function getJSON(path) {
+  const r = await fetch(API + path, { headers: { "User-Agent": "DeckForge-updater" } });
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+
+// Keep only what the app uses; this roughly halves the file.
+function trim(c) {
+  const m = c.misc_info?.[0] ?? {}, b = c.banlist_info ?? {};
+  const o = { id: c.id, name: c.name, type: c.type, frame: c.frameType ?? "", desc: c.desc ?? "", race: c.race ?? "" };
+  if (c.attribute) o.attr = c.attribute;
+  if (c.atk != null) o.atk = c.atk;
+  if (c.def != null) o.def = c.def;
+  if (c.level != null) o.level = c.level;
+  if (c.linkval != null) o.link = c.linkval;
+  if (c.scale != null) o.scale = c.scale;
+  if (c.archetype) o.arch = c.archetype;
+  o.ban = { tcg: b.ban_tcg ?? null, ocg: b.ban_ocg ?? null, goat: b.ban_goat ?? null };
+  o.formats = (m.formats ?? []).map(s => s.toLowerCase());
+  const alts = (c.card_images ?? []).map(i => i.id).filter(id => id !== c.id);
+  if (alts.length) o.alts = alts;
+  return o;
+}
+const points = (cards, key) => {
+  const out = {};
+  for (const c of cards) { const v = Number(c.misc_info?.[0]?.[key]); if (v) out[c.id] = v; }
+  return out;
+};
+
+const prev = await readFile(new URL("meta.json", OUT), "utf8").then(JSON.parse).catch(() => null);
+const ver = await getJSON("checkDBVer.php");
+const dbVersion = String((Array.isArray(ver) ? ver[0] : ver)?.database_version ?? "unknown");
+const stale = !prev || Date.now() - Date.parse(prev.fetched) > WEEK;
+
+if (!force && !stale && prev.source === dbVersion) {
+  console.log(`Up to date (YGOPRODeck database v${dbVersion}).`);
+  process.exit(0);
+}
+
+console.log(`Building from YGOPRODeck database v${dbVersion}…`);
+await sleep(1000);
+const all = (await getJSON("cardinfo.php?misc=yes")).data;
+await sleep(1000);
+const gp = points((await getJSON("cardinfo.php?format=genesys&misc=yes")).data, "genesys_points");
+await sleep(1000);
+let gpo = {};
+try { gpo = points((await getJSON("cardinfo.php?format=genesys%20ocg&misc=yes")).data, "genesys_ocg_points"); }
+catch (e) { console.warn(`Genesys OCG list skipped: ${e.message}`); gpo = prev?.gpoFallback ?? {}; }
+
+// Refuse to publish something obviously broken.
+if (!Array.isArray(all) || all.length < 10000) throw new Error(`Only ${all?.length} cards returned; not writing.`);
+if (Object.keys(gp).length === 0) throw new Error("Empty Genesys point list; not writing.");
+
+const fetched = new Date().toISOString();
+const cards = all.filter(c => c.frameType !== "skill").map(trim);
+const blob = { version: fetched, fetched, source: dbVersion, cards, gp, gpo };
+
+await mkdir(OUT, { recursive: true });
+await writeFile(new URL("cards.json", OUT), JSON.stringify(blob));
+await writeFile(new URL("meta.json", OUT), JSON.stringify({ version: fetched, fetched, source: dbVersion, count: cards.length }, null, 2) + "\n");
+console.log(`Wrote ${cards.length} cards, ${Object.keys(gp).length} Genesys and ${Object.keys(gpo).length} Genesys OCG point entries.`);

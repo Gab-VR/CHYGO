@@ -1,0 +1,59 @@
+name: Update card data
+
+on:
+  push:
+    branches: [main]           # also runs when you push app changes (cheap: one version check)
+  schedule:
+    - cron: "17 6 * * *"      # daily, 06:17 UTC (off the hour, when GitHub is less busy)
+  workflow_dispatch:           # adds a "Run workflow" button in the Actions tab
+    inputs:
+      force:
+        description: "Rebuild even if YGOPRODeck's database version is unchanged"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write              # lets the job commit data/ back to this repo
+
+concurrency:
+  group: update-cards
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build data/ from YGOPRODeck
+        run: node scripts/update-cards.mjs ${{ inputs.force && '--force' || '' }}
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet -- data/ && [ -z "$(git ls-files --others --exclude-standard data/)" ]; then
+            echo "No changes."
+          else
+            git config user.name "card-data-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/
+            git commit -m "Update card data ($(jq -r .source data/meta.json))"
+            git push
+          fi
+
+      # ---- Only for the "two repositories" setup (private source, public site) ----
+      # Uncomment, create a deploy key with write access on the public repo, and save its
+      # private half in this repo as the secret PUBLIC_SITE_DEPLOY_KEY.
+      #
+      # - name: Publish site to the public repo
+      #   uses: peaceiris/actions-gh-pages@v4
+      #   with:
+      #     deploy_key: ${{ secrets.PUBLIC_SITE_DEPLOY_KEY }}
+      #     external_repository: YOUR-USER/deck-forge-site
+      #     publish_branch: main
+      #     publish_dir: .
+      #     exclude_assets: ".github,scripts"
