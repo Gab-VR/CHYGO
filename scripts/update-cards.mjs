@@ -18,7 +18,7 @@ const force = process.argv.includes("--force");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function getJSON(path) {
-  const r = await fetch(API + path, { headers: { "User-Agent": "DeckForge-updater" } });
+  const r = await fetch(API + path, { headers: { "User-Agent": "A-deckbuilder-updater" } });
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
   return r.json();
 }

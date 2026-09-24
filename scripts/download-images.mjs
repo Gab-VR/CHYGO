@@ -74,7 +74,7 @@ async function fetchOne(id) {
     lastStart = Math.max(Date.now(), lastStart + MIN_GAP_MS);
     if (wait > 0) await sleep(wait);
     let r;
-    try { r = await fetch(`${BASE}${id}.jpg`, { headers: { "User-Agent": "DeckForge-image-fetch (personal, one-time)" } }); }
+    try { r = await fetch(`${BASE}${id}.jpg`, { headers: { "User-Agent": "A-deckbuilder-image-fetch (personal, one-time)" } }); }
     catch { await sleep(2000 * attempt); continue; }
     if (r.ok) {
       const buf = Buffer.from(await r.arrayBuffer());
