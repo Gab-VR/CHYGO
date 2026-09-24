@@ -1,7 +1,7 @@
 
-# Yu-gi-oh Duelist Utilities
+# Duelist Utilities
 
-Just another Deckbuilder app.
+Just another Yu-gi-oh! Deckbuilder app.
 
 ## About the data
 
