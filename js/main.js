@@ -1,6 +1,7 @@
 // main.js
+import { initDeckMenu } from "./deckmenu.js";
 import { loadDB, syncData } from "./cards.js";
-import { DEFAULT_CATS, newDeck } from "./deck.js";
+import { migrateCats, newDeck } from "./deck.js";
 import { IMGS, probePath, restoreFolder } from "./images.js";
 import { newFormat } from "./legality.js";
 import { changed, fmt, idb, LS, S } from "./store.js";
@@ -33,7 +34,7 @@ on("images:progress", () => refreshImageStatus());
 // If anything fails at startup, say so on the page instead of leaving it blank.
 function showFatal(msg) {
   if ($("#fatal")) return;
-  document.body.prepend(h("div", { id: "fatal", role: "alert", style: { background: "#5a2330", color: "#fff", padding: "10px 16px", borderBottom: "1px solid var(--bad)" } },
+  document.body.prepend(h("div", { id: "fatal", role: "alert", style: { background: "#5a2a28", color: "#fff", padding: "10px 16px", borderBottom: "1px solid var(--bad)" } },
     h("b", {}, "A deckbuilder hit an error: "), msg, h("div", { style: { fontSize: "12px", opacity: .8, marginTop: "4px" } }, `Build ${BUILD}. Press F12 and open the Console tab for details.`)));
 }
 
@@ -46,16 +47,14 @@ async function init() {
   if (!S.formats.length) S.formats.push(newFormat("TCG"), newFormat("Genesys"), newFormat("Unlimited"));
   for (const d of S.decks) {
     d.swPool ||= []; d.tags ||= {}; d.cats ||= []; d.scen ||= []; d.hand ||= 5; d.order ||= {};
-    if (!d.catsV) {                      // older decks: the five default categories become the built-ins
-      const names = new Set(DEFAULT_CATS.map(([n]) => n));
-      for (const k of d.cats) if (names.has(k.name)) k.builtin = true;
-      d.catsV = 2;
-    }
+    migrateCats(d);                      // keeps categories up to date with the built-ins
   }
   for (const f of S.formats) { f.over ||= {}; f.pover ||= {}; }
   if (!SEARCH_SORTS[S.ui.searchSort]) S.ui.searchSort = "alpha";
   if (!DECK_VIEWS.some(([v]) => v === S.ui.deckView)) S.ui.deckView = S.ui.deckSort === "cats" ? "cats" : "table";   // the old Sort menu's Categories became a view
   delete S.ui.deckSort;
+  delete S.ui.xinfoOpen;
+  if (!S.ui.uiV || S.ui.uiV < 2) { S.ui.textSearch = true; S.ui.uiV = 2; }   // "Match card text" became the default                // Extra information is no longer remembered open
   if (S.ui.img === "local") S.ui.img = "path"; else if (!["off", "folder", "path"].includes(S.ui.img)) S.ui.img = "off";
   const cur = LS.get("cur", {});
   S.deckId = S.decks.some(d => d.id === cur.deck) ? cur.deck : S.decks[0].id;
@@ -81,6 +80,7 @@ async function init() {
   syncData().then(r => { if (r.updated) { toast(`Card data updated (${S.meta.n} cards)`); changed(); renderResults(); } }).catch(e => console.warn(e));
 }
 
+initDeckMenu();
 init().catch(e => { console.error(e); showFatal(e.message || String(e)); });
 
 // Open the app with ?debug in the address to use every module's functions from the browser console.

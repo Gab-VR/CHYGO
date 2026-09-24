@@ -2,11 +2,11 @@
 // Two of the Build tab's deck views: Table (full card miniatures, like cards on a playmat)
 // and Sheet (Konami's deck registration form, filled in, with PDF export).
 // The third view, Categories, lives in build.js.
-import { ensureOrder } from "../deck.js";
-import { card, count, deck, S, save } from "../store.js";
-import { cardIsBad, deckCardEvents, dropZone, mini } from "../ui.js";
+import { add, alphaCopies, ensureCopyOrder, ensureOrder, move, moveCopies, SECTIONS } from "../deck.js";
+import { card, changed, count, deck, S, save } from "../store.js";
+import { cardIsBad, deckCardEvents, dragData, dropAfter, dropData, dropZone, hideDropLine, mini, showDropLine } from "../ui.js";
 import { KDE_FILE, MAIN_ROWS, SIDE_ROWS, SHEET_FIELDS, sheetData, fillKde, kdeTemplate, setKdeTemplate } from "../decklist.js";
-import { download, h } from "../util.js";
+import { $$, download, h, toast } from "../util.js";
 
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 // [card, copies] in the deck's own order.
@@ -23,11 +23,84 @@ function sectionHeader(label, key, info = "") {
 }
 
 /* ---------- Table ---------- */
+// Two orders: Alphabetic (card type, then name) and Custom, where every copy has its own
+// place. Drag a card to move that copy; hold Shift while dragging to move the whole playset.
+// Dragging while in Alphabetic switches to Custom, starting from what's on screen.
+const TABLE_ORDERS = [["alpha", "Alphabetic"], ["custom", "Custom"]];
+const tableList = (d, key) => S.ui.tableOrder === "custom" ? ensureCopyOrder(d, key) : alphaCopies(d, key);
+
+// Custom always starts from the arrangement on screen, so switching never reshuffles the cards.
+function startCustomOrder(d, quiet = false) {
+  if (S.ui.tableOrder === "custom") return;
+  d.copyOrder = Object.fromEntries(SECTIONS.map(s => [s, alphaCopies(d, s)]));
+  S.ui.tableOrder = "custom"; save();
+  if (!quiet) toast("Switched to Custom order");
+}
+function setTableOrder(v) {
+  if (v === "custom") startCustomOrder(deck(), true); else S.ui.tableOrder = v;
+  save(); changed();
+}
+// Position of the k-th copy of `id` in list (k counts from 0), or list.length.
+function occurrence(list, id, k) {
+  for (let i = 0, seen = 0; i < list.length; i++) if (list[i] === id && seen++ === k) return i;
+  return list.length;
+}
+// A card dropped at position `to` of section `sec` (to = list length: at the end).
+function tableDrop(sec, data, to) {
+  const d = deck(), c = data && card(data.id); if (!c) return;
+  startCustomOrder(d);
+  const before = ensureCopyOrder(d, sec).slice();
+  if (data.from === sec && data.pos != null) {                         // rearranging within the section
+    const from = data.set ? before.flatMap((x, i) => x === c.id ? [i] : []) : [data.pos];
+    moveCopies(d, sec, from, to); changed(); return;
+  }
+  // Remember the drop spot as "the k-th copy of card X", since adding shifts positions.
+  const anchor = before[to], anchorK = anchor == null ? 0 : before.slice(0, to).filter(x => x === anchor).length;
+  const had = d[sec][c.id] || 0;
+  if (data.from) {
+    const n = data.set ? d[data.from][c.id] || 0 : 1;
+    if (!data.set && data.pos != null) ensureCopyOrder(d, data.from).splice(data.pos, 1);   // take the dragged copy
+    for (let k = 0; k < n; k++) move(c.id, data.from, sec);
+  } else add(c.id, sec, 1, { quiet: true });
+  const added = (d[sec][c.id] || 0) - had;
+  if (added > 0) {
+    const list = ensureCopyOrder(d, sec), mine = list.flatMap((x, i) => x === c.id ? [i] : []).slice(-added);
+    moveCopies(d, sec, mine, anchor == null ? list.length : occurrence(list, anchor, anchorK));
+  }
+  changed();
+}
+function tableEvents(c, sec, pos) {
+  return Object.assign(deckCardEvents(c, sec), {
+    title: `${c.name}\nClick to view. Right-click removes this copy. Drag to move it; Shift-drag moves every copy.`,
+    ondragstart: e => dragData(e, c.id, sec, undefined, { pos, set: e.shiftKey }),
+    ondragover: e => {
+      e.preventDefault(); e.stopPropagation();
+      const el = e.currentTarget; el.dataset.after = dropAfter(e, el) ? "1" : ""; showDropLine(el, !!el.dataset.after);
+    },
+    ondrop: e => {
+      e.preventDefault(); e.stopPropagation(); hideDropLine(); $$(".drop").forEach(x => x.classList.remove("drop"));
+      tableDrop(sec, dropData(e), e.currentTarget.dataset.after ? pos + 1 : pos);
+    },
+    oncontextmenu: e => {
+      e.preventDefault();
+      if (S.ui.tableOrder === "custom") ensureCopyOrder(deck(), sec).splice(pos, 1);     // this copy, not the last one
+      add(c.id, sec, -1);
+    }
+  });
+}
 function tableSection(key, label, info = "") {
-  const d = deck(), items = orderedItems(d, key);
-  const mat = h("div", { class: "mat" + (items.length ? "" : " mat-empty") },
-    items.length ? items.flatMap(([c, n]) => Array.from({ length: n }, () => mini(c, key))) : h("div", { class: "mat-hint" }, EMPTY_HINT[key]));
-  return h("div", { class: "section" }, sectionHeader(label, key, info), dropZone(mat, key));
+  const d = deck(), list = tableList(d, key);
+  const mat = h("div", { class: "mat" + (list.length ? "" : " mat-empty") },
+    list.length ? list.map((id, i) => { const c = card(id); return c ? mini(c, key, tableEvents(c, key, i)) : null; })
+      : h("div", { class: "mat-hint" }, EMPTY_HINT[key]));
+  mat.addEventListener("dragover", e => {
+    e.preventDefault(); mat.classList.add("drop");
+    const last = mat.querySelector(".mini:last-of-type");                 // empty space: the card goes last
+    if (e.target === mat) last ? showDropLine(last, true) : hideDropLine();
+  });
+  mat.addEventListener("dragleave", e => { if (!mat.contains(e.relatedTarget)) mat.classList.remove("drop"); });
+  mat.addEventListener("drop", e => { e.preventDefault(); mat.classList.remove("drop"); tableDrop(key, dropData(e), list.length); });
+  return h("div", { class: "section" }, sectionHeader(label, key, info), mat);
 }
 
 /* ---------- Sheet ---------- */
@@ -88,4 +161,4 @@ function sheetView() {
         status, picker)));
 }
 
-export { EMPTY_HINT, orderedItems, sectionHeader, sheetView, tableSection };
+export { setTableOrder, startCustomOrder, EMPTY_HINT, orderedItems, sectionHeader, sheetView, TABLE_ORDERS, tableDrop, tableSection };

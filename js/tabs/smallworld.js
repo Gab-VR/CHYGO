@@ -6,7 +6,7 @@ import { $, h } from "../util.js";
 
 /* ================= small world ================= */
 const SW = { view: "graph", hand: null, target: null, sim: null, hover: null };
-const ATTR_COL = { DARK: "#8e6bc9", LIGHT: "#e8d77a", EARTH: "#a47a4e", WATER: "#4f9ad8", FIRE: "#e0664a", WIND: "#6cc58b", DIVINE: "#e6c878" };
+const ATTR_COL = { DARK: "#8e6bc9", LIGHT: "#e8d77a", EARTH: "#a47a4e", WATER: "#4f9ad8", FIRE: "#e0664a", WIND: "#6cc58b", DIVINE: "#72d5c8" };
 function swShared(a, b) {
   const s = [];
   if (a.race === b.race) s.push("Type");
@@ -44,7 +44,7 @@ function renderSW() {
       h("div", { class: "matrix-wrap" }, h("table", { class: "matrix" },
         h("tr", {}, h("th", {}), P.map(c => h("th", { class: "ch", title: c.name }, c.name))),
         P.map((c, i) => h("tr", {}, h("th", { class: "rh", title: c.name }, c.name), P.map((t, k) => h("td", {
-          style: { background: M[i][k] ? `rgba(201,164,76,${0.18 + 0.82 * M[i][k] / mx})` : "transparent", color: M[i][k] / mx > .5 ? "#241c08" : "" },
+          style: { background: M[i][k] ? `rgba(47,181,165,${0.18 + 0.82 * M[i][k] / mx})` : "transparent", color: M[i][k] / mx > .5 ? "#06201d" : "" },
           title: `${c.name} → ${t.name}: ${M[i][k]} bridge${M[i][k] === 1 ? "" : "s"}`,
           onclick: () => { SW.hand = c.id; SW.target = t.id; renderSW(); } }, M[i][k] || "")))))));
   }
@@ -110,15 +110,15 @@ function startGraph(cv, P, A) {
     const hv = sim.hover, focus = hv >= 0 ? hv : hi;
     for (const [i, j, lab] of E) {
       const on = focus >= 0 && (i === focus || j === focus);
-      g.strokeStyle = on ? "rgba(230,200,120,.9)" : focus >= 0 ? "rgba(155,162,184,.12)" : "rgba(155,162,184,.35)";
+      g.strokeStyle = on ? "rgba(114,213,200,.9)" : focus >= 0 ? "rgba(159,162,168,.12)" : "rgba(159,162,168,.35)";
       g.lineWidth = on ? 1.8 : 1; g.beginPath(); g.moveTo(N[i].x, N[i].y); g.lineTo(N[j].x, N[j].y); g.stroke();
-      if (on) { g.fillStyle = "#e6c878"; g.font = "11px system-ui"; g.textAlign = "center"; g.fillText(lab, (N[i].x + N[j].x) / 2, (N[i].y + N[j].y) / 2 - 3); }
+      if (on) { g.fillStyle = "#72d5c8"; g.font = "11px system-ui"; g.textAlign = "center"; g.fillText(lab, (N[i].x + N[j].x) / 2, (N[i].y + N[j].y) / 2 - 3); }
     }
     N.forEach((n, i) => {
       g.beginPath(); g.arc(n.x, n.y, 9, 0, 2 * Math.PI); g.fillStyle = ATTR_COL[n.c.attr] || "#999"; g.fill();
-      if (reach.has(i)) { g.lineWidth = 3; g.strokeStyle = "#e6c878"; g.beginPath(); g.arc(n.x, n.y, 13, 0, 2 * Math.PI); g.stroke(); }
+      if (reach.has(i)) { g.lineWidth = 3; g.strokeStyle = "#72d5c8"; g.beginPath(); g.arc(n.x, n.y, 13, 0, 2 * Math.PI); g.stroke(); }
       if (i === hi) { g.lineWidth = 2; g.strokeStyle = "#fff"; g.beginPath(); g.arc(n.x, n.y, 16, 0, 2 * Math.PI); g.stroke(); }
-      g.fillStyle = i === focus || reach.has(i) || focus < 0 ? "#ece6d6" : "rgba(236,230,214,.35)";
+      g.fillStyle = i === focus || reach.has(i) || focus < 0 ? "#e8e8e6" : "rgba(232,232,230,.35)";
       g.font = (i === focus ? "600 " : "") + "12px system-ui"; g.textAlign = "center"; g.fillText(n.c.name.length > 26 ? n.c.name.slice(0, 25) + "…" : n.c.name, n.x, n.y + 24);
     });
   };

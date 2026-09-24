@@ -1,13 +1,12 @@
 // tabs/build.js
-import { frameColor, isExtra, isLink, isMonster, isSpell, isTrap, kindRank, levelOf, releaseDate, sortKey, statOk, subLine } from "../cards.js";
-import { add, addCategory, customCats, MAX_CUSTOM_CATS, move, newDeck, primaryCat } from "../deck.js";
+import { cardKind, cardLevel, cardStats, frameColor, isExtra, isLink, isMonster, isSpell, isTrap, kindRank, levelOf, releaseDate, sortKey, statOk, subLine } from "../cards.js";
+import { add, addCategory, customCats, MAX_CUSTOM_CATS, move, primaryCat, removeCategory } from "../deck.js";
 import { artPos, hideBroken, IMG_ART, IMG_FULL, imgOn } from "../images.js";
-import { inPool, limitLabel, limitOf, pointsOf, totalCopies } from "../legality.js";
+import { inPool, limitLabel, limitOf, pointsOf } from "../legality.js";
 import { card, changed, deck, fmt, S, save } from "../store.js";
-import { bubbles, catChips, dragData, dropData, dropZone, imageSelect, imageStatus, tile } from "../ui.js";
-import { EMPTY_HINT, orderedItems, sectionHeader, sheetView, tableSection } from "./deckviews.js";
-import { $, $$, h, toast, uid } from "../util.js";
-import { exportYdk, fromYdke, importDeck, toYdke } from "../ydk.js";
+import { bubbles, dragData, dropData, dropZone, pictureNotice, tile } from "../ui.js";
+import { EMPTY_HINT, orderedItems, sectionHeader, setTableOrder, sheetView, TABLE_ORDERS, tableSection } from "./deckviews.js";
+import { $, $$, h, toast } from "../util.js";
 
 /* ================= build tab ================= */
 const Q = { q: "", kind: "all", attr: "", race: "", lvMin: "", lvMax: "", atk: "", def: "", arch: "", legal: false, limit: 150 };
@@ -93,6 +92,14 @@ function dropOnCategory(data, key, k) {
 }
 /* Categories view: Main Deck cards in one box per category (drag between boxes to recategorize);
    the Extra and Side Deck as tiles in the deck's own order. */
+// "+ New category" at the end of the category boxes (up to MAX_CUSTOM_CATS of your own).
+function newCategoryBox(d) {
+  const full = customCats(d).length >= MAX_CUSTOM_CATS;
+  return h("button", { class: "catbox empty-box catbox-new", disabled: full,
+    title: full ? `You have ${MAX_CUSTOM_CATS} custom categories; remove one to add another.` : "Add a category of your own",
+    onclick: () => { const name = prompt("Name for the new category"); if (name && name.trim() && addCategory(d, name)) changed(); } },
+    full ? `${MAX_CUSTOM_CATS} of ${MAX_CUSTOM_CATS} custom` : "+ New category");
+}
 function sectionEl(key, label, extraInfo) {
   const d = deck(), mode = key === "main" ? "cats" : "custom";
   const items = orderedItems(d, key);
@@ -104,19 +111,21 @@ function sectionEl(key, label, extraInfo) {
     const groups = new Map(d.cats.map(k => [k.id, []])), none = [];
     for (const it of items) { const k = primaryCat(d, it[0].id); k ? groups.get(k.id).push(it) : none.push(it); }
     const box = (k, its) => {
-      const el = h("div", { class: "catbox" + (its.length ? "" : " empty-box"), style: { "--c": k ? k.color : "#8b8fa3" },
+      const el = h("div", { class: "catbox" + (its.length ? "" : " empty-box"), style: { "--c": k ? k.color : "#8e9197" },
         ondragover: e => { e.preventDefault(); e.stopPropagation(); el.classList.add("drop"); },
         ondragleave: e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); },
         ondrop: e => { e.preventDefault(); e.stopPropagation(); el.classList.remove("drop"); dropOnCategory(dropData(e), key, k); },
         title: its.length ? null : `Drag cards here to put them in ${k ? k.name : "no category"}` },
-        h("div", { class: "catbox-h" }, h("b", {}, k ? k.name : "Not in a category"),
-          h("span", { class: "dim" }, its.length ? (n => `${n} card${n === 1 ? "" : "s"}`)(its.reduce((a, [, n]) => a + n, 0)) : "Drag cards here")),
+        h("div", { class: "catbox-h", title: k && k.hint ? k.hint : null }, h("b", {}, k ? k.name : "Not in a category"),
+          h("span", { class: "dim" }, its.length ? (n => `${n} card${n === 1 ? "" : "s"}`)(its.reduce((a, [, n]) => a + n, 0)) : "Drag cards here"),
+          k && !k.builtin ? h("button", { class: "catbox-x", title: `Remove the "${k.name}" category`, "aria-label": `Remove the ${k.name} category`,
+            onclick: e => { e.stopPropagation(); if (confirm(`Remove the "${k.name}" category? Its cards stay in the deck.`)) { removeCategory(d, k.id); changed(); } } }, "✕") : null),
         its.length ? h("div", { class: "grid" }, its.map(([c, n]) => tile(c, n, key, k))) : null);
       return el;
     };
     const full = d.cats.filter(k => groups.get(k.id).length), empty = d.cats.filter(k => !groups.get(k.id).length);
     body = [...full.map(k => box(k, groups.get(k.id))), none.length ? box(null, none) : null,
-      h("div", { class: "empty-boxes" }, empty.map(k => box(k, [])), none.length ? null : box(null, []))];
+      h("div", { class: "empty-boxes" }, empty.map(k => box(k, [])), none.length ? null : box(null, []), newCategoryBox(d))];
   }
   if (!body && mode !== "cats") body = h("div", { class: "grid" }, items.map(([c, n]) => tile(c, n, key)));
   return dropZone(h("div", { class: "section" }, sectionHeader(label, key, extraInfo), body), key);
@@ -144,7 +153,7 @@ function deckView() {
   return [section("main", "Main Deck", mainInfo()), section("extra", "Extra Deck"), section("side", "Side Deck")];
 }
 function renderBuild() {
-  const root = $("#tab-build"), d = deck(), f = fmt();
+  const root = $("#tab-build");
   const keepFocus = document.activeElement && document.activeElement.id;
   if (!$("#results", root)) {
     const inp = (k, attrs = {}) => h("input", Object.assign({ value: Q[k], oninput: e => { Q[k] = e.target.value; Q.limit = 150; renderResults(); } }, attrs));
@@ -178,20 +187,12 @@ function renderBuild() {
   // deck area
   $("#deckArea", root).replaceChildren(
     h("div", { class: "deckbar" },
-      h("button", { onclick: () => { const n = newDeck(); S.decks.push(n); S.deckId = n.id; S.sel = null; changed(); } }, "New deck"),
-      h("button", { onclick: () => { const n = prompt("Deck name", d.name); if (n) { d.name = n.trim() || d.name; changed(); } } }, "Rename"),
-      h("button", { onclick: () => { const c = JSON.parse(JSON.stringify(d)); c.id = uid(); c.name = d.name + " (copy)"; S.decks.push(c); S.deckId = c.id; changed(); } }, "Duplicate"),
-      h("button", { onclick: () => { if (!confirm(`Delete "${d.name}"?`)) return; S.decks = S.decks.filter(x => x !== d); if (!S.decks.length) S.decks.push(newDeck()); S.deckId = S.decks[0].id; changed(); } }, "Delete"),
-      h("span", { class: "grow" }),
-      h("button", { onclick: () => $("#fileIn").click() }, "Import .ydk"),
-      h("button", { onclick: exportYdk }, "Export .ydk"),
-      h("button", { onclick: ydkeDialog }, "YDKE"),
-      h("label", { class: "row" }, "Images", imageSelect()),
-      imageStatus(),
-      h("span", { style: { flexBasis: "100%", height: 0 } }),
       h("div", { class: "seg", role: "group", "aria-label": "Deck view" }, DECK_VIEWS.map(([v, l, tip]) =>
         h("button", { "aria-pressed": S.ui.deckView === v, title: tip, onclick: () => { S.ui.deckView = v; save(); renderBuild(); } }, l))),
-      h("span", { class: "dim imgnote" }, "Drag cards to reorder. Right-click removes one."),
+      S.ui.deckView === "table" ? h("div", { class: "seg", role: "group", "aria-label": "Table order",
+        title: S.ui.tableOrder === "custom" ? "Drag a card to move it; Shift-drag moves every copy." : "Card type, then name. Dragging a card switches to Custom." },
+        TABLE_ORDERS.map(([v, l]) => h("button", { "aria-pressed": (S.ui.tableOrder || "alpha") === v, onclick: () => setTableOrder(v) }, l))) : null,
+      pictureNotice(),
       h("span", { class: "grow" }),
       h("button", { class: "toggle", "aria-pressed": !!S.ui.overrideLimit, title: "Allow more copies than the format's limit (the deck is still flagged as illegal)",
         onclick: () => { S.ui.overrideLimit = !S.ui.overrideLimit; save(); renderBuild(); toast(S.ui.overrideLimit ? "Card limits overridden" : "Card limits enforced"); } }, "Override card limit")),
@@ -199,65 +200,42 @@ function renderBuild() {
   renderDetail();
   if (keepFocus === "q") $("#q").focus();
 }
+// Collapsed whenever a different card is shown; stays open while you look at the card you opened it on.
+let xinfoOpenFor = null;
 function extraInfo(c) {
-  const rows = [["Passcode", c.id]];
-  if (c.alts && c.alts.length) rows.push(["Alternate artworks", c.alts.join(", ")]);
+  const rows = [];
+  if (c.arch) rows.push(["Archetype", c.arch]);
   if (c.tcg) rows.push(["TCG release", c.tcg]);
   if (c.ocg) rows.push(["OCG release", c.ocg]);
-  if (c.arch) rows.push(["Archetype", c.arch]);
+  if (c.alts && c.alts.length) rows.push(["Artworks", String(c.alts.length + 1)]);
   let prints;
   if (!S.setNames) prints = h("p", { class: "dim" }, "Printing details arrive with the next card-data update.");
   else if (!c.sets || !c.sets.length) prints = h("p", { class: "dim" }, "No printings recorded. The card may be OCG-only or not released yet.");
   else prints = h("div", { class: "prints" }, h("table", {},
     h("tr", {}, h("th", {}, "Set"), h("th", {}, "Code"), h("th", {}, "Rarity")),
     c.sets.map(([code, si, ri]) => h("tr", {}, h("td", {}, S.setNames[si] || "?"), h("td", { class: "code" }, code), h("td", {}, S.rarities[ri] || "")))));
-  return h("details", { class: "xinfo", open: S.ui.xinfoOpen !== false, ontoggle: e => { S.ui.xinfoOpen = e.target.open; save(); } },
+  return h("details", { class: "xinfo", open: xinfoOpenFor === c.id, ontoggle: e => { xinfoOpenFor = e.target.open ? c.id : null; } },
     h("summary", {}, h("h3", {}, "Extra information")),
-    h("table", { class: "kv" }, rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, String(v))))),
-    h("h3", { style: { fontSize: "14px", margin: "10px 0 4px" } }, `Printings${c.sets && c.sets.length ? ` (${c.sets.length})` : ""}`), prints);
+    rows.length ? h("table", { class: "kv" }, rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))) : null,
+    h("h4", {}, `Printings${c.sets && c.sets.length ? ` (${c.sets.length})` : ""}`), prints);
 }
+// Card info: picture, name, the stats one per line, text, and status bubbles.
 function renderDetail() {
   const box = $("#detail"); if (!box) return;
   const c = S.sel && card(S.sel), d = deck(), f = fmt();
-  if (!c) return box.replaceChildren(h("h2", {}, "Card"), h("p", { class: "dim" }, "Select a card in your deck or the search results to see its text, limits and categories."));
-  const sec = isExtra(c) ? "extra" : "main", l = limitOf(c), n = totalCopies(d, c.id), lab = limitLabel(c);
-  const ban = f.banlist !== "none" ? c.ban[f.banlist] : null, pts = f.points ? pointsOf(c) : 0;
-  const mark = pts ? h("span", { class: "gp-mark", title: `${f.name} points` }, h("b", {}, pts), h("small", {}, "pts")) : null;
-  const room = customCats(d).length < MAX_CUSTOM_CATS;
+  if (!c) return box.replaceChildren(h("h2", {}, "Card info"), h("p", { class: "dim" }, "Click a card in the List or the Searcher to see it here."));
+  const lab = limitLabel(c), pts = f.points ? pointsOf(c) : 0;
+  const where = [["main", "Main"], ["extra", "Extra"], ["side", "Side"]].filter(([k]) => d[k][c.id]).map(([k, name]) => `${d[k][c.id]} in ${name}`);
   box.replaceChildren(
-    imgOn() && IMG_FULL(c.id) ? h("div", { class: "zoom" }, h("img", { src: IMG_FULL(c.id), alt: c.name, onerror: hideBroken }), mark) : null,
-    h("div", { class: "name-row" }, h("h2", {}, c.name), imgOn() && IMG_FULL(c.id) ? null : mark),
-    h("div", { class: "typeline" }, [c.type, isMonster(c) ? subLine(c) : null, c.scale != null ? `Scale ${c.scale}` : null].filter(Boolean).join(", ")),
+    imgOn() && IMG_FULL(c.id) ? h("div", { class: "zoom" }, h("img", { src: IMG_FULL(c.id), alt: c.name, onerror: hideBroken })) : null,
+    h("h2", {}, c.name),
+    h("div", { class: "card-stats" }, [cardKind(c), cardLevel(c), c.scale != null ? `Scale ${c.scale}` : "", cardStats(c)].filter(Boolean).map(t => h("div", {}, t))),
+    lab || pts || !inPool(c) || where.length ? h("div", { class: "row info-bubs" },
+      lab ? h("span", { class: "bub " + lab.cls }, lab.text) : null,
+      pts ? h("span", { class: "bub pts", title: `${f.name} points` }, `${pts} pts`) : null,
+      !inPool(c) ? h("span", { class: "bub warn-bub" }, `Not in ${f.pool}`) : null,
+      where.length ? h("span", { class: "dim in-deck" }, where.join(", ")) : null) : null,
     h("div", { class: "desc" }, c.desc),
-    h("p", { class: "row", style: { gap: "6px" } },
-      lab ? h("span", { class: "bub " + lab.cls }, lab.text) : h("span", {}, `Up to ${l} copies,`),
-      ban && !lab ? h("span", { class: "dim" }, ` (${ban} on ${f.banlist.toUpperCase()})`) : "",
-      f.over[c.id] != null ? h("span", { class: "dim" }, "(format override)") : "",
-      h("span", {}, `${n} in deck`), !inPool(c) ? h("span", { class: "warn" }, `Not in the ${f.pool} pool.`) : ""),
-    h("div", { class: "btns" },
-      h("button", { onclick: () => add(c.id, sec) }, `Add to ${sec === "main" ? "Main" : "Extra"}`),
-      h("button", { onclick: () => add(c.id, sec, -1), disabled: !d[sec][c.id] }, `Remove from ${sec === "main" ? "Main" : "Extra"}`),
-      h("button", { onclick: () => add(c.id, "side") }, "Add to Side"),
-      h("button", { onclick: () => add(c.id, "side", -1), disabled: !d.side[c.id] }, "Remove from Side"),
-      h("button", { onclick: () => move(c.id, sec, "side"), disabled: !d[sec][c.id] }, "Move to Side"),
-      h("button", { onclick: () => move(c.id, "side", sec), disabled: !d.side[c.id] }, "Move from Side")),
-    h("div", {}, h("h3", {}, "Categories"), catChips(c.id),
-      h("div", { class: "row", style: { marginTop: "6px" } },
-        room ? h("button", { class: "small", onclick: () => { const name = prompt("Name for the new category"); if (!name) return;
-          const k = addCategory(d, name); if (!k) return; d.tags[c.id] = [...(d.tags[c.id] || []), k.id]; changed(); } }, "New category") : null,
-        h("span", { class: "dim", style: { fontSize: "12px" } }, `${customCats(d).length} of ${MAX_CUSTOM_CATS} custom categories used.`))),
-    isMonster(c) && !isExtra(c) ? h("button", { class: "ghost", style: { marginTop: "8px" }, onclick: () => { if (!d.swPool.includes(c.id)) d.swPool.push(c.id); changed(); toast("Added to Small World pool"); } }, "Add to Small World pool") : null,
     extraInfo(c));
 }
-function ydkeDialog() {
-  const ta = h("textarea", { readOnly: false }, toYdke());
-  const body = $("#dlgBody");
-  body.replaceChildren(h("h2", {}, "YDKE link"), h("p", { class: "dim" }, "Copy this to share the current deck, or paste a ydke:// link and import it as a new deck."), ta,
-    h("div", { class: "row", style: { marginTop: "10px", justifyContent: "flex-end" } },
-      h("button", { type: "button", onclick: () => { navigator.clipboard?.writeText(ta.value); toast("Copied"); } }, "Copy"),
-      h("button", { type: "button", class: "primary", onclick: () => { try { const { d, unknown } = fromYdke(ta.value); $("#dlg").close(); importDeck(d, unknown, "Imported deck"); } catch { toast("That doesn't look like a ydke:// link"); } } }, "Import as new deck"),
-      h("button", {}, "Close")));
-  $("#dlg").showModal(); ta.select();
-}
-
-export { byName, byType, DECK_VIEWS, deckView, dropOnCategory, extraInfo, mainInfo, Q, renderBuild, renderDetail, renderResults, resultRow, SEARCH_SORTS, searchCards, sectionEl, setDirButton, sortResults, ydkeDialog };
+export { byName, byType, DECK_VIEWS, deckView, dropOnCategory, extraInfo, mainInfo, Q, renderBuild, renderDetail, renderResults, resultRow, SEARCH_SORTS, searchCards, sectionEl, setDirButton, sortResults };

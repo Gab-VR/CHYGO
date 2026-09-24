@@ -97,9 +97,9 @@ async function indexHandle(dir) {
 }
 function folderReport() {
   const d = IMGS.diag; if (!d) return "";
-  if (IMGS.urls.size && IMGS.pathMisses && !IMGS.pathHits) return `Found ${IMGS.urls.size} images, but none of the ones tested could be displayed. Check that the files are complete images, then choose the folder again.`;
-  if (IMGS.urls.size && IMGS.pathMisses) return `${coverageText()} ${IMGS.pathMisses} of ${IMGS.pathMisses + IMGS.pathHits} tested images couldn't be displayed.`;
-  if (IMGS.urls.size) return coverageText();
+  if (IMGS.urls.size && IMGS.pathMisses && !IMGS.pathHits) return "The pictures in that folder couldn't be displayed. Check that they're complete image files, then choose the folder again.";
+  if (IMGS.urls.size && IMGS.pathMisses) return `Some pictures in "${IMGS.folderName || "the folder"}" couldn't be displayed.`;
+  if (IMGS.urls.size) return `Pictures from "${IMGS.folderName || "your folder"}"${IMGS.session ? " (for this session)" : ""}.`;
   if (d.unreadable) return `Found ${d.unreadable} images but couldn't read them (${d.error}). Choose the folder again.`;
   if (d.gone) return "The image folder you chose before was moved or deleted. Choose it again from its new location.";
   if (d.aborted) return d.via ? "No folder was selected." : "Edge closed the folder dialog without giving the app a folder. Press the button to try again.";

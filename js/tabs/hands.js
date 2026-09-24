@@ -1,6 +1,6 @@
 // tabs/hands.js
 import { frameColor, sortKey } from "../cards.js";
-import { addCategory, customCats, MAX_CUSTOM_CATS } from "../deck.js";
+import { addCategory, customCats, MAX_CUSTOM_CATS, removeCategory } from "../deck.js";
 import { handOdds, sampleHand } from "../prob.js";
 import { card, deck, save } from "../store.js";
 import { catChips, tile } from "../ui.js";
@@ -19,11 +19,11 @@ function renderHands() {
     h("p", { class: "dim", style: { fontSize: "13px" } }, "A card can belong to several categories. Overlaps are handled exactly."),
     d.cats.map(k => h("div", { class: "cat-row" },
       h("input", { type: "color", value: k.color, "aria-label": "Colour", oninput: e => { k.color = e.target.value; save(); }, onchange: rerender }),
-      k.builtin ? h("span", { class: "grow", style: { padding: "5px 8px" } }, k.name)
+      k.builtin ? h("span", { class: "grow", style: { padding: "5px 8px" }, title: k.hint || "" }, k.name,
+        k.hint && k.name === "Half Starter" ? h("span", { class: "dim", style: { fontSize: "11px" } }, " (needs a fodder)") : null)
         : h("input", { value: k.name, class: "grow", maxlength: 24, "aria-label": "Category name", onchange: e => { k.name = e.target.value.trim() || k.name; rerender(); } }),
       k.builtin ? null : h("button", { class: "small ghost", title: "Delete category", onclick: () => {
-        d.cats = d.cats.filter(x => x !== k); for (const id in d.tags) d.tags[id] = d.tags[id].filter(t => t !== k.id);
-        d.scen.forEach(s => s.conds = s.conds.filter(c => c.cat !== k.id)); rerender(); } }, "✕"))),
+        removeCategory(d, k.id); rerender(); } }, "✕"))),
     h("div", { class: "row" },
       h("button", { disabled: customCats(d).length >= MAX_CUSTOM_CATS, onclick: () => { if (addCategory(d, "New category")) rerender(); } }, "Add category"),
       h("span", { class: "dim", style: { fontSize: "12px" } }, `${customCats(d).length} of ${MAX_CUSTOM_CATS} custom`)),

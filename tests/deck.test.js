@@ -43,3 +43,86 @@ test("at most five custom categories", () => {
   for (let i = 0; i < 7; i++) addCategory(d, "c" + i);
   assert.equal(customCats(d).length, MAX_CUSTOM_CATS);
 });
+
+/* ---- Table view: order of individual copies ---- */
+import { ensureCopyOrder, moveCopies, alphaCopies } from "../js/deck.js";
+
+test("copy order starts from the card order, one entry per copy", () => {
+  d.main = { 1: 2, 2: 1 }; d.order = { main: [2, 1] };
+  assert.deepEqual(ensureCopyOrder(d, "main"), [2, 1, 1]);
+});
+
+test("copies of one card can be separated and stay separated", () => {
+  d.main = { 1: 3, 2: 1 }; d.order = { main: [1, 2] };
+  ensureCopyOrder(d, "main");                  // [1, 1, 1, 2]
+  moveCopies(d, "main", [0], 4);               // first copy of card 1 to the end
+  assert.deepEqual(ensureCopyOrder(d, "main"), [1, 1, 2, 1]);
+});
+
+test("a whole playset moves together", () => {
+  d.main = { 1: 3, 2: 1 }; d.order = { main: [1, 2] };
+  ensureCopyOrder(d, "main");
+  moveCopies(d, "main", [0, 1, 2], 4);
+  assert.deepEqual(ensureCopyOrder(d, "main"), [2, 1, 1, 1]);
+});
+
+test("the order doesn't re-sort itself: new copy after its card, new card at the end, removals from the run's end", () => {
+  d.main = { 1: 2, 2: 1 }; d.order = { main: [1, 2] };
+  ensureCopyOrder(d, "main");
+  moveCopies(d, "main", [2], 0);               // [2, 1, 1]
+  d.main[1] = 3; d.main[3] = 1;
+  assert.deepEqual(ensureCopyOrder(d, "main"), [2, 1, 1, 1, 3]);
+  d.main[1] = 1;
+  assert.deepEqual(ensureCopyOrder(d, "main"), [2, 1, 3]);
+});
+
+test("alphabetic order groups by card type first", () => {
+  d.main = { 10: 1, 2: 2, 1: 1 };              // Pot J (spell), Extender B, Starter A
+  assert.deepEqual(alphaCopies(d, "main"), [2, 2, 1, 10]);
+});
+
+/* ---- Built-in categories ---- */
+import { newDeck, migrateCats, CATS_VERSION } from "../js/deck.js";
+const names = d => d.cats.map(k => k.name);
+
+test("new decks get the six built-in categories", () => {
+  assert.deepEqual(names(newDeck()), ["Starter", "Half Starter", "Extender", "Hand-trap", "Interaction", "Brick"]);
+  assert.ok(newDeck().cats.every(k => k.builtin && k.hint));
+});
+
+test("a deck with the old categories is migrated without losing tags", () => {
+  const old = { catsV: 2, tags: {}, cats: [
+    { id: "s", name: "Starter", builtin: true }, { id: "e", name: "Extender", builtin: true },
+    { id: "f", name: "Follow-up", builtin: true }, { id: "h", name: "Hand trap", builtin: true },
+    { id: "b", name: "Brick", builtin: true }, { id: "g", name: "Garnet", builtin: false }] };
+  old.tags = { 1: ["s"], 2: ["f", "h"], 3: ["g"] };
+  migrateCats(old);
+  assert.deepEqual(names(old), ["Starter", "Half Starter", "Extender", "Hand-trap", "Interaction", "Brick", "Follow-up", "Garnet"]);
+  assert.equal(old.cats.find(k => k.name === "Follow-up").builtin, false);        // now one of your own
+  assert.equal(old.cats.find(k => k.name === "Hand-trap").id, "h");               // same category, renamed
+  assert.deepEqual(old.tags, { 1: ["s"], 2: ["f", "h"], 3: ["g"] });
+  assert.equal(old.catsV, CATS_VERSION);
+});
+
+test("a deck from before built-ins existed is migrated too, and migrating twice changes nothing", () => {
+  const ancient = { cats: [{ id: "s", name: "Starter" }, { id: "t", name: "Hand trap" }, { id: "x", name: "Mine" }], tags: {} };
+  migrateCats(ancient);
+  const once = JSON.stringify(ancient);
+  migrateCats(ancient);
+  assert.equal(JSON.stringify(ancient), once);
+  assert.deepEqual(names(ancient), ["Starter", "Half Starter", "Extender", "Hand-trap", "Interaction", "Brick", "Mine"]);
+  assert.equal(ancient.cats.find(k => k.name === "Mine").builtin, undefined);
+});
+
+import { removeCategory, categoryCopies } from "../js/deck.js";
+test("removing a custom category untags cards and drops its hand conditions; built-ins stay", () => {
+  const k = addCategory(d, "Garnet");
+  d.main = { 1: 3, 2: 2 }; d.tags = { 1: [k.id, d.cats[0].id], 2: [k.id] };
+  d.scen = [{ conds: [{ cat: k.id, op: "<=", n: 0 }, { cat: d.cats[0].id, op: ">=", n: 1 }] }];
+  assert.equal(categoryCopies(d, k.id), 5);
+  assert.equal(removeCategory(d, d.cats[0].id), false);          // built-in: refused
+  assert.equal(removeCategory(d, k.id), true);
+  assert.deepEqual(d.tags, { 1: [d.cats[0].id], 2: [] });
+  assert.equal(d.scen[0].conds.length, 1);
+  assert.ok(!d.cats.includes(k));
+});

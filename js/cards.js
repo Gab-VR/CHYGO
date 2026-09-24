@@ -79,4 +79,32 @@ const releaseDate = c => c.tcg || c.ocg || null;
 const levelOf = c => isLink(c) ? c.link : c.level;
 const statOk = v => v != null && v >= 0;
 
-export { baseFrame, DARK_FRAMES, DATA, fmtStat, frameColor, ingest, isExtra, isLink, isMonster, isPend, isSpell, isTrap, kindRank, levelOf, loadDataFile, loadDB, releaseDate, sortKey, statOk, storeDB, subLine, syncData };
+/* Card info text, one line each:
+     cardKind  "Effect | Gemini", "Synchro Effect | Tuner", "Quick-Play Spell"
+     cardLevel "Lv 4 Light Spellcaster", "Rank 4 Dark Machine", "Link-2 Light Cyberse"
+     cardStats "1850/1000", or "2300" for Link monsters                                    */
+const FRAME_WORDS = ["Fusion", "Synchro", "XYZ", "Link", "Ritual", "Pendulum"];
+const SUPERTYPES = ["Gemini", "Toon", "Union", "Spirit", "Flip", "Tuner"];
+function cardKind(c) {
+  if (!isMonster(c)) return `${c.race === "Normal" ? "" : c.race + " "}${isSpell(c) ? "Spell" : "Trap"}`;
+  const words = c.type.replace(/\bMonster\b/, "").split(/\s+/).filter(Boolean);
+  const frames = words.filter(w => FRAME_WORDS.includes(w)).map(w => w === "XYZ" ? "Xyz" : w);
+  const supers = words.filter(w => SUPERTYPES.includes(w));
+  // Gemini, Toon, Union, Spirit and Flip monsters are Effect monsters even when their type omits it.
+  const base = words.includes("Normal") ? "Normal"
+    : words.includes("Effect") || supers.some(w => w !== "Tuner") ? "Effect" : null;
+  const main = [...frames, base].filter(Boolean).join(" ") || "Monster";
+  return supers.length ? `${main} | ${supers.join(" | ")}` : main;
+}
+const titleCase = s => s ? s.charAt(0) + s.slice(1).toLowerCase() : "";
+function cardLevel(c) {
+  if (!isMonster(c)) return "";
+  const lv = isLink(c) ? `Link-${c.link}` : baseFrame(c) === "xyz" ? `Rank ${c.level}` : `Lv ${c.level}`;
+  return [lv, titleCase(c.attr), c.race].filter(Boolean).join(" ");
+}
+function cardStats(c) {
+  if (!isMonster(c)) return "";
+  return isLink(c) ? `${fmtStat(c.atk)}` : `${fmtStat(c.atk)}/${fmtStat(c.def)}`;
+}
+
+export { cardKind, cardLevel, cardStats, baseFrame, DARK_FRAMES, DATA, fmtStat, frameColor, ingest, isExtra, isLink, isMonster, isPend, isSpell, isTrap, kindRank, levelOf, loadDataFile, loadDB, releaseDate, sortKey, statOk, storeDB, subLine, syncData };

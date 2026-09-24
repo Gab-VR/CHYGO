@@ -18,6 +18,10 @@
   </nav>
   <div class="hdr-right">
     <select id="deckSel" aria-label="Deck"></select>
+    <div class="menu-wrap">
+      <button id="deckMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="deckMenu">Deck ▾</button>
+      <div class="menu" id="deckMenu" role="menu" aria-label="Deck actions" hidden></div>
+    </div>
     <select id="fmtSel" aria-label="Format"></select>
     <label class="row" title="Count points against the format's cap"><input type="checkbox" id="ptsToggle"> Points</label>
     <div class="meter" id="meter" hidden><div class="bar"><i></i></div><span></span></div>
@@ -42,9 +46,9 @@
     var file = location.protocol === "file:";
     var box = document.createElement("div");
     box.setAttribute("role", "alert");
-    box.style.cssText = "margin:40px auto;max-width:620px;padding:16px 20px;background:#283049;border:1px solid #e36a5f;border-radius:10px;color:#ece6d6;font:15px/1.5 system-ui,sans-serif";
+    box.style.cssText = "margin:40px auto;max-width:620px;padding:16px 20px;background:#26282c;border:1px solid #e05a50;border-radius:10px;color:#e8e8e6;font:15px/1.5 system-ui,sans-serif";
     box.innerHTML = file
-      ? "<b>Open this app through a local web server.</b><br>Browsers don't run it when it's opened as a file. In a terminal in the app's folder, run <code>python3 -m http.server 8000</code> and open <a style='color:#e6c878' href='http://localhost:8000'>http://localhost:8000</a>."
+      ? "<b>Open this app through a local web server.</b><br>Browsers don't run it when it's opened as a file. In a terminal in the app's folder, run <code>python3 -m http.server 8000</code> and open <a style='color:#72d5c8' href='http://localhost:8000'>http://localhost:8000</a>."
       : "<b>The app's code didn't load.</b><br>Press F12 and open the Console tab to see why.";
     document.querySelector("main").prepend(box);
   }, 1500));

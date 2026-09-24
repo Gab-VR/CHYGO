@@ -1,21 +1,49 @@
 // deck.js
-import { isExtra, sortKey } from "./cards.js";
+import { isExtra, kindRank, sortKey } from "./cards.js";
 import { limitLabel, limitOf, totalCopies } from "./legality.js";
 import { card, changed, deck, fmt, S } from "./store.js";
 import { emit, toast, uid } from "./util.js";
 
+// The built-in categories, in display order: [name, colour, what it means].
 const DEFAULT_CATS = [
-  ["Starter", "#e6b24a"], ["Extender", "#5aa7e8"], ["Follow-up", "#a68bf0"], ["Hand trap", "#62c78f"], ["Brick", "#e0665c"]
+  ["Starter", "#e6b24a", "Starts your combo on its own"],
+  ["Half Starter", "#d8c47c", "Starts your combo, but needs a fodder"],
+  ["Extender", "#5aa7e8", "Adds to a combo that's already going"],
+  ["Hand-trap", "#62c78f", "Interrupts the opponent from your hand"],
+  ["Interaction", "#b48cf0", "Other ways to interfere with the opponent"],
+  ["Brick", "#e0665c", "A card you don't want to open"]
 ];
+const CATS_VERSION = 3;
 function newDeck(name = "New deck") {
-  const cats = DEFAULT_CATS.map(([n, c]) => ({ id: uid(), name: n, color: c, builtin: true }));
-  const [st, ex, , , br] = cats;
-  return { id: uid(), name, main: {}, extra: {}, side: {}, order: {}, tags: {}, cats, catsV: 2, hand: 5, swPool: [],
+  const cats = DEFAULT_CATS.map(([n, c, hint]) => ({ id: uid(), name: n, color: c, hint, builtin: true }));
+  const [st, , ex, , , br] = cats;
+  return { id: uid(), name, main: {}, extra: {}, side: {}, order: {}, tags: {}, cats, catsV: CATS_VERSION, hand: 5, swPool: [],
     scen: [
       { id: uid(), name: "Can play", conds: [{ cat: st.id, op: ">=", n: 1 }] },
       { id: uid(), name: "Starter + extender", conds: [{ cat: st.id, op: ">=", n: 1 }, { cat: ex.id, op: ">=", n: 1 }] },
       { id: uid(), name: "Brick-free opener", conds: [{ cat: st.id, op: ">=", n: 1 }, { cat: br.id, op: "<=", n: 0 }] }
     ] };
+}
+/* Brings a deck's categories up to the current built-ins, keeping every card's tags:
+   v1 (no built-ins yet): the old default names become built-ins, then as below.
+   v2 -> v3: "Hand trap" becomes "Hand-trap", "Follow-up" becomes a custom category,
+   "Half Starter" and "Interaction" are added, and the built-ins go first in the new order. */
+function migrateCats(d) {
+  if ((d.catsV || 1) >= CATS_VERSION) return d;
+  d.cats ||= [];
+  if (!d.catsV) for (const k of d.cats) if (["Starter", "Extender", "Follow-up", "Hand trap", "Brick"].includes(k.name)) k.builtin = true;
+  for (const k of d.cats) {
+    if (!k.builtin) continue;
+    if (k.name === "Hand trap") k.name = "Hand-trap";
+    if (k.name === "Follow-up") k.builtin = false;
+  }
+  const builtins = DEFAULT_CATS.map(([n, c, hint]) => {
+    const k = d.cats.find(x => x.builtin && x.name === n) || { id: uid(), name: n, color: c, builtin: true };
+    k.hint = hint; return k;
+  });
+  d.cats = [...builtins, ...d.cats.filter(k => !builtins.includes(k))];
+  d.catsV = CATS_VERSION;
+  return d;
 }
 const SECTIONS = ["main", "extra", "side"];
 // Custom order: one list of passcodes per section; cards missing from it go at the end in card-type order.
@@ -73,7 +101,58 @@ function addCategory(d, name) {
   const k = { id: uid(), name: name.trim().slice(0, 24) || "New category", color };
   d.cats.push(k); return k;
 }
+// Removes one of your own categories: its tag comes off every card, and hand scenarios drop
+// the conditions that used it. Built-in categories can't be removed.
+function removeCategory(d, id) {
+  const k = d.cats.find(x => x.id === id); if (!k || k.builtin) return false;
+  d.cats = d.cats.filter(x => x !== k);
+  for (const cid in d.tags) d.tags[cid] = d.tags[cid].filter(t => t !== id);
+  for (const sc of d.scen || []) sc.conds = sc.conds.filter(c => c.cat !== id);
+  return true;
+}
+// How many Main Deck copies carry the category.
+function categoryCopies(d, id) { return Object.entries(d.main).reduce((a, [cid, n]) => a + ((d.tags[cid] || []).includes(id) ? n : 0), 0); }
 // A card's box in the Categories view: the first of its categories in list order.
 function primaryCat(d, id) { const t = d.tags[id] || []; return d.cats.find(k => t.includes(k.id)) || null; }
 
-export { add, addCategory, customCats, DEFAULT_CATS, ensureOrder, MAX_CUSTOM_CATS, move, newDeck, placeInOrder, primaryCat, reorder, SECTIONS };
+/* Table view order. Unlike ensureOrder (one entry per card), this lists every copy, so copies
+   of the same card can sit apart. It never re-sorts itself: when the deck changes, extra copies
+   of a card go right after that card's last copy, new cards go at the end, and removed copies
+   come off the end of that card's run. */
+function ensureCopyOrder(d, sec) {
+  d.copyOrder ||= {};
+  let list = d.copyOrder[sec];
+  if (!list) list = ensureOrder(d)[sec].flatMap(id => Array(d[sec][id]).fill(id));   // start from the card order
+  list = list.filter(id => d[sec][id]);
+  const seen = {};
+  for (let i = list.length - 1; i >= 0; i--) {                    // too many copies listed: drop the last ones
+    const id = list[i]; seen[id] = (seen[id] || 0) + 1;
+    if (seen[id] > d[sec][id]) { list.splice(i, 1); seen[id]--; }
+  }
+  for (const [key, n] of Object.entries(d[sec])) {                 // too few: add after the card's last copy, or at the end
+    const id = +key;
+    for (let k = seen[id] || 0; k < n; k++) {
+      const last = list.lastIndexOf(id);
+      last >= 0 ? list.splice(last + 1, 0, id) : list.push(id);
+    }
+  }
+  return d.copyOrder[sec] = list;
+}
+// Moves the copies at positions `from` so they start at position `to` (a position in the
+// list before the move; to = list length means "at the end").
+function moveCopies(d, sec, from, to) {
+  const list = ensureCopyOrder(d, sec), take = new Set(from);
+  const moving = from.slice().sort((a, b) => a - b).map(i => list[i]);
+  const shift = from.filter(i => i < to).length;
+  const rest = list.filter((_, i) => !take.has(i));
+  rest.splice(Math.max(0, to - shift), 0, ...moving);
+  d.copyOrder[sec] = rest;
+}
+// Card type first (effect, normal, Link, Xyz, Synchro, Fusion, Spell, Trap), then name.
+function alphaCopies(d, sec) {
+  return Object.entries(d[sec]).map(([id, n]) => [card(id), n]).filter(([c]) => c)
+    .sort((a, b) => kindRank(a[0]) - kindRank(b[0]) || a[0].name.localeCompare(b[0].name))
+    .flatMap(([c, n]) => Array(n).fill(c.id));
+}
+
+export { categoryCopies, removeCategory, CATS_VERSION, migrateCats, add, alphaCopies, ensureCopyOrder, moveCopies, addCategory, customCats, DEFAULT_CATS, ensureOrder, MAX_CUSTOM_CATS, move, newDeck, placeInOrder, primaryCat, reorder, SECTIONS };

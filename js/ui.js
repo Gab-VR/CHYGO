@@ -1,7 +1,7 @@
 // ui.js
-import { baseFrame, DARK_FRAMES, frameColor, isMonster, isPend, loadDataFile, subLine, syncData } from "./cards.js";
-import { add, move, reorder } from "./deck.js";
-import { artPos, canRememberFolder, chooseImages, connectFolder, folderReport, IMG_ART, IMG_FULL, imgOn, IMGS } from "./images.js";
+import { baseFrame, DARK_FRAMES, frameColor, isPend, loadDataFile, syncData } from "./cards.js";
+import { add, ensureOrder, move, reorder } from "./deck.js";
+import { canRememberFolder, chooseImages, connectFolder, coverage, folderReport, IMG_FULL, imgOn, IMGS } from "./images.js";
 import { deckPoints, inPool, limitLabel, limitOf, pointsOf, totalCopies, validate } from "./legality.js";
 import { changed, deck, fmt, S, save } from "./store.js";
 import { $, $$, h, toast } from "./util.js";
@@ -63,7 +63,7 @@ function imageState() {
   if (IMGS.needsPermission) return { text: "Edge needs your permission to read the picture folder again.", cls: "warn", btn: "Reconnect image folder" };
   if (!IMGS.urls.size) return IMGS.diag ? { text: folderReport(), cls: "warn", btn: "Choose image folder" } : { text: "No picture folder chosen yet.", cls: "warn", btn: "Choose image folder" };
   if (IMGS.pathMisses) return { text: folderReport(), cls: "warn", btn: "Choose image folder" };
-  return { text: `${IMGS.urls.size.toLocaleString()} pictures from "${IMGS.folderName || "your folder"}"${IMGS.session ? " (for this session)" : ""}.`, cls: "dim" };
+  return { text: folderReport(), cls: "dim" };
 }
 function imageStatus() {
   const st = imageState();
@@ -71,12 +71,59 @@ function imageStatus() {
     st.btn ? h("button", { class: "small primary", onclick: connectFolder }, st.btn) : null,
     h("span", { class: st.cls + " imgnote" }, st.text));
 }
-function refreshImageStatus() { const el = $("#imgStatus"); if (el) el.replaceWith(imageStatus()); }
+/* The List only mentions pictures when something needs doing: a button to connect the
+   folder, "Loading pictures…", or a quiet "Outdated database" when cards in this deck have
+   no picture in the folder. Everything else lives in Format > Card images. */
+function pictureNotice() {
+  const wrap = (...kids) => h("span", { class: "row pic-notice", id: "imgStatus" }, ...kids);
+  if (S.ui.img === "off") return wrap();
+  if (S.ui.img === "path") return IMGS.pathMisses && !IMGS.pathHits
+    ? wrap(h("span", { class: "quiet-warn", title: `No pictures found at ${S.ui.imgTpl}. Change it in Format > Card images.` }, "⚠ Pictures not found")) : wrap();
+  if (IMGS.reading) return wrap(h("span", { class: "dim imgnote" }, "Loading pictures…"));
+  if (!IMGS.urls.size) return wrap(h("button", { class: "small", title: imageState().text, onclick: connectFolder },
+    IMGS.needsPermission ? "Reconnect pictures" : "Choose picture folder"));
+  const missing = coverage().missing;
+  return missing.length
+    ? wrap(h("span", { class: "quiet-warn", title: `${missing.length} card${missing.length === 1 ? "" : "s"} in this deck ${missing.length === 1 ? "has" : "have"} no picture in your folder: ${missing.slice(0, 8).map(c => c.name).join(", ")}${missing.length > 8 ? "…" : ""}.\nRun scripts/download-images.mjs to add the missing ones.` }, "⚠ Outdated database"))
+    : wrap();
+}
+function refreshImageStatus() {
+  const el = $("#imgStatus"); if (!el) return;
+  el.replaceWith(el.classList.contains("pic-notice") ? pictureNotice() : imageStatus());
+}
 function imageSelect() {
   return h("select", { "aria-label": "Card images", onchange: e => chooseImages(e.target.value) },
     [["off", "Off"], ["folder", "Image folder"], ["path", "Image URL path"]].map(([v, l]) => h("option", { value: v, selected: S.ui.img === v }, l)));
 }
-function dragData(e, id, from, cat) { e.dataTransfer.setData("text/plain", JSON.stringify({ id, from, cat })); e.dataTransfer.effectAllowed = "copyMove"; }
+/* Drag and drop. The browser only reveals what's being dragged at drop time, so the card is
+   also kept in `dragging` while it's in the air: that decides where the drop line may show. */
+let dragging = null;
+function dragData(e, id, from, cat, extra = {}) {
+  dragging = Object.assign({ id, from, cat }, extra);
+  e.dataTransfer.setData("text/plain", JSON.stringify(dragging)); e.dataTransfer.effectAllowed = "copyMove";
+}
+const isDragging = () => dragging;
+
+// The yellow line marking where a dragged card will land: at the left or right edge of a
+// card in a grid, or above or below a row in a list.
+let dropLine = null;
+function dropAfter(e, el, rows = false) {
+  const r = el.getBoundingClientRect();
+  return rows ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+}
+function showDropLine(el, after, rows = false) {
+  dropLine ||= document.body.appendChild(h("div", { class: "drop-line", "aria-hidden": "true" }));
+  const r = el.getBoundingClientRect(), t = 3;
+  Object.assign(dropLine.style, rows
+    ? { left: r.left + "px", width: r.width + "px", height: t + "px", top: (after ? r.bottom : r.top) - t / 2 + "px" }
+    : { top: r.top + "px", height: r.height + "px", width: t + "px", left: (after ? r.right + 3 : r.left - 3) - t / 2 + "px" });
+  dropLine.style.display = "block";
+}
+function hideDropLine() { if (dropLine) dropLine.style.display = "none"; }
+if (typeof document !== "undefined") {
+  document.addEventListener("dragend", () => { dragging = null; hideDropLine(); });
+  document.addEventListener("drop", () => { dragging = null; hideDropLine(); });
+}
 const dropData = e => { try { return JSON.parse(e.dataTransfer.getData("text/plain")); } catch { return null; } };
 function bubbles(c, f = fmt()) {
   const lab = limitLabel(c, f), p = f.points ? pointsOf(c) : 0;
@@ -103,16 +150,28 @@ function stackStyle(n, bad) {
    "+" adds one, and dropping another card on it places that card just before it.
    Inside a category box the drop is left to the box, which changes the category instead. */
 function deckCardEvents(c, sec, boxCat) {
+  // Inside a category box, dropping a card from another box changes its category (the box
+  // handles that); from the same box, or anywhere else, it's placed next to this card.
+  const placesHere = el => !el.closest(".catbox") || (dragging && dragging.from === sec && dragging.cat === (boxCat ? boxCat.id : null));
   return {
     draggable: true, tabindex: 0, title: `${c.name}\nClick to view. Right-click removes one copy. Drag to reorder.`,
     oncontextmenu: e => { e.preventDefault(); add(c.id, sec, -1); },
     ondragstart: e => dragData(e, c.id, sec, boxCat === undefined ? undefined : boxCat ? boxCat.id : null),
-    ondrop: e => {
-      if (e.currentTarget.closest(".catbox")) return;
+    ondragover: e => {
+      const el = e.currentTarget; if (!placesHere(el)) { hideDropLine(); return; }
       e.preventDefault(); e.stopPropagation();
+      const list = el.classList.contains("kde-row");
+      el.dataset.after = dropAfter(e, el, list) ? "1" : ""; showDropLine(el, !!el.dataset.after, list);
+    },
+    ondrop: e => {
+      const el = e.currentTarget; if (!placesHere(el)) return;
+      e.preventDefault(); e.stopPropagation(); hideDropLine();
       $$(".drop").forEach(x => x.classList.remove("drop"));
       const data = dropData(e); if (!data) return;
-      if (data.from === sec) reorder(sec, data.id, c.id); else if (data.from) move(data.id, data.from, sec, c.id); else add(data.id, sec, 1, { before: c.id });
+      // "After this card" = "before the next card in the deck's order" (or at the end).
+      let before = c.id;
+      if (el.dataset.after) { const o = ensureOrder(deck())[sec], i = o.indexOf(c.id); before = o[i + 1] ?? null; if (before === data.id) before = o[i + 2] ?? null; }
+      if (data.from === sec) reorder(sec, data.id, before); else if (data.from) move(data.id, data.from, sec, before); else add(data.id, sec, 1, { before });
     },
     onclick: e => { if (e.shiftKey) add(c.id, sec, -1); else { S.sel = c.id; renderTab(); } },
     onkeydown: e => { if (e.key === "Enter") { S.sel = c.id; renderTab(); } if (e.key === "Delete" || e.key === "-") add(c.id, sec, -1); if (e.key === "+") add(c.id, sec, 1); }
@@ -121,7 +180,7 @@ function deckCardEvents(c, sec, boxCat) {
 // Makes an element accept cards dropped from the search list or another section.
 // Dropped in its own section on empty space, a card moves to the end.
 function dropZone(el, sec) {
-  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("drop"); });
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("drop"); if (e.target === el) hideDropLine(); });
   el.addEventListener("dragleave", e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); });
   el.addEventListener("drop", e => {
     e.preventDefault(); el.classList.remove("drop");
@@ -131,23 +190,38 @@ function dropZone(el, sec) {
   return el;
 }
 const cardIsBad = c => totalCopies(deck(), c.id) > limitOf(c) || !inPool(c);
+/* Card as a picture with its name on a tag above it (Categories view, test hands).
+   Extra copies stack behind the picture; long names scroll into view after a moment's hover. */
 function tile(c, n, sec, boxCat) {
-  const d = deck(), f = fmt(), dark = DARK_FRAMES.has(baseFrame(c));
-  const tags = d.cats.filter(k => (d.tags[c.id] || []).includes(k.id));
-  const bad = cardIsBad(c);
-  const p = f.points ? pointsOf(c) : 0;
-  return h("div", Object.assign({ class: ["tile", n > 1 && "stacked", dark && "dark", isPend(c) && "pend", S.sel === c.id && "sel", bad && "illegal", imgOn() && IMG_ART(c.id) && "art"].filter(Boolean).join(" "),
-    style: Object.assign({ "--fc": frameColor(c) }, stackStyle(n, bad), imgOn() && IMG_ART(c.id) ? Object.assign({ backgroundImage: `url("${IMG_ART(c.id)}")` }, artPos()) : {}) },
-    deckCardEvents(c, sec, boxCat)),
-    tags.length ? h("div", { class: "tags" }, tags.map(k => h("i", { style: { background: k.color } }))) : null,
-    h("div", { class: "nm" }, c.name), h("div", { class: "sub" }, isMonster(c) ? subLine(c).replace(c.race, "").replace(/\s+/g, " ") : c.race),
-    h("span", { class: "cnt" }, "×" + n), p ? h("span", { class: "pts" }, p * n + "pt") : null);
+  const f = fmt(), bad = cardIsBad(c), pic = imgOn() && IMG_FULL(c.id), p = f.points ? pointsOf(c) : 0;
+  const label = h("span", {}, c.name), tag = h("div", { class: "ctag" }, label);
+  const el = h("div", Object.assign({ class: ["ctile", S.sel === c.id && "sel", bad && "illegal"].filter(Boolean).join(" ") }, deckCardEvents(c, sec, boxCat)),
+    tag,
+    h("div", { class: ["cpic", DARK_FRAMES.has(baseFrame(c)) && "dark", isPend(c) && "pend"].filter(Boolean).join(" "),
+      style: Object.assign({ "--fc": frameColor(c) }, stackStyle(n, bad)) },
+      pic ? h("img", { src: pic, alt: "", draggable: false, loading: "lazy", onerror: e => e.target.remove() }) : null,
+      n > 1 ? h("span", { class: "cnt" }, "×" + n) : null,
+      p ? h("span", { class: "bub pts on-pic", title: `${f.name} points` }, `${p} pts`) : null));
+  marquee(el, tag, label);
+  return el;
+}
+// Scrolls a clipped label to show its end while `host` is hovered (after a short pause).
+function marquee(host, box, label) {
+  host.addEventListener("mouseenter", () => {
+    const d = label.scrollWidth - box.clientWidth;
+    if (d <= 2 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    label.style.transition = `transform ${Math.max(1, d / 45).toFixed(2)}s linear .6s`;
+    label.style.transform = `translateX(${-d}px)`;
+  });
+  host.addEventListener("mouseleave", () => { label.style.transition = "transform .2s ease-out"; label.style.transform = ""; });
+  // A faded right edge hints that the name continues.
+  requestAnimationFrame(() => box.classList.toggle("long", label.scrollWidth > box.clientWidth + 2));
 }
 // A full miniature: the whole card picture, or a card-shaped frame with the name if there's none.
-function mini(c, sec) {
+function mini(c, sec, events = deckCardEvents(c, sec)) {
   const pic = imgOn() && IMG_FULL(c.id);
   return h("div", Object.assign({ class: ["mini", DARK_FRAMES.has(baseFrame(c)) && "dark", isPend(c) && "pend", S.sel === c.id && "sel", cardIsBad(c) && "illegal", pic && "pic"].filter(Boolean).join(" "),
-    style: { "--fc": frameColor(c) } }, deckCardEvents(c, sec)),
+    style: { "--fc": frameColor(c) } }, events),
     pic ? h("img", { src: pic, alt: c.name, draggable: false, loading: "lazy", onerror: e => { e.target.closest(".mini").classList.remove("pic"); e.target.remove(); } }) : null,
     h("span", { class: "mini-name" }, c.name));
 }
@@ -168,4 +242,4 @@ function cardPicker(onPick, filter = () => true) {
   return h("div", { class: "sugg" }, inp, menu);
 }
 
-export { bubbles, cardIsBad, cardPicker, catChips, deckCardEvents, dragData, dropData, dropZone, mini, imageSelect, imageState, imageStatus, refreshImageStatus, registerTab, renderHeader, renderSplash, renderTab, setTab, STACK_STEP, stackStyle, TABS, tile };
+export { pictureNotice, bubbles, cardIsBad, dropAfter, hideDropLine, isDragging, marquee, showDropLine, cardPicker, catChips, deckCardEvents, dragData, dropData, dropZone, mini, imageSelect, imageState, imageStatus, refreshImageStatus, registerTab, renderHeader, renderSplash, renderTab, setTab, STACK_STEP, stackStyle, TABS, tile };

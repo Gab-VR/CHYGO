@@ -59,3 +59,30 @@ test("card pool check uses the format's pool", () => {
   f.pool = "OCG";
   assert.equal(inPool(card(11)), true);
 });
+
+/* ---- Card info lines ---- */
+import { cardKind, cardLevel, cardStats } from "../js/cards.js";
+const m = (type, extra = {}) => ({ type, frame: "effect", race: "Spellcaster", attr: "LIGHT", level: 4, atk: 1850, def: 1000, ...extra });
+
+test("kind line: Effect/Normal, frame words, and supertypes after a bar", () => {
+  assert.equal(cardKind(m("Effect Monster")), "Effect");
+  assert.equal(cardKind(m("Normal Monster")), "Normal");
+  assert.equal(cardKind(m("Gemini Monster")), "Effect | Gemini");
+  assert.equal(cardKind(m("Toon Monster")), "Effect | Toon");
+  assert.equal(cardKind(m("Union Effect Monster")), "Effect | Union");
+  assert.equal(cardKind(m("Normal Tuner Monster")), "Normal | Tuner");
+  assert.equal(cardKind(m("Synchro Tuner Effect Monster", { frame: "synchro" })), "Synchro Effect | Tuner");
+  assert.equal(cardKind(m("XYZ Pendulum Effect Monster", { frame: "xyz_pendulum" })), "Xyz Pendulum Effect");
+  assert.equal(cardKind(m("Link Monster", { frame: "link" })), "Link");
+  assert.equal(cardKind({ type: "Spell Card", frame: "spell", race: "Quick-Play" }), "Quick-Play Spell");
+  assert.equal(cardKind({ type: "Trap Card", frame: "trap", race: "Normal" }), "Trap");
+});
+
+test("level and stats lines", () => {
+  assert.equal(cardLevel(m("Effect Monster")), "Lv 4 Light Spellcaster");
+  assert.equal(cardLevel(m("XYZ Monster", { frame: "xyz", attr: "DARK", race: "Machine" })), "Rank 4 Dark Machine");
+  assert.equal(cardLevel(m("Link Monster", { frame: "link", link: 2, race: "Cyberse" })), "Link-2 Light Cyberse");
+  assert.equal(cardStats(m("Effect Monster")), "1850/1000");
+  assert.equal(cardStats(m("Link Monster", { frame: "link", atk: 2300, def: null })), "2300");
+  assert.equal(cardStats(m("Effect Monster", { atk: -1, def: 0 })), "?/0");
+});
