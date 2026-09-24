@@ -1,10 +1,11 @@
 // tabs/build.js
 import { frameColor, isExtra, isLink, isMonster, isSpell, isTrap, kindRank, levelOf, releaseDate, sortKey, statOk, subLine } from "../cards.js";
-import { add, addCategory, customCats, ensureOrder, MAX_CUSTOM_CATS, move, newDeck, primaryCat, reorder } from "../deck.js";
+import { add, addCategory, customCats, MAX_CUSTOM_CATS, move, newDeck, primaryCat } from "../deck.js";
 import { artPos, hideBroken, IMG_ART, IMG_FULL, imgOn } from "../images.js";
 import { inPool, limitLabel, limitOf, pointsOf, totalCopies } from "../legality.js";
-import { card, changed, count, deck, fmt, S, save } from "../store.js";
-import { bubbles, catChips, dragData, dropData, imageSelect, imageStatus, tile } from "../ui.js";
+import { card, changed, deck, fmt, S, save } from "../store.js";
+import { bubbles, catChips, dragData, dropData, dropZone, imageSelect, imageStatus, tile } from "../ui.js";
+import { EMPTY_HINT, orderedItems, sectionHeader, sheetView, tableSection } from "./deckviews.js";
 import { $, $$, h, toast, uid } from "../util.js";
 import { exportYdk, fromYdke, importDeck, toYdke } from "../ydk.js";
 
@@ -90,16 +91,13 @@ function dropOnCategory(data, key, k) {
   else { const was = data.cat ?? (primaryCat(d, c.id) || {}).id; tags = tags.filter(t => t !== was && t !== k.id); tags.unshift(k.id); }
   d.tags[c.id] = tags; S.sel = c.id; changed();
 }
-function sortedItems(d, key, mode = S.ui.deckSort) {
-  const items = Object.entries(d[key]).map(([id, n]) => [card(id), n]).filter(([c]) => c);
-  if (mode === "custom") { const o = ensureOrder(d)[key]; return items.sort((a, b) => o.indexOf(a[0].id) - o.indexOf(b[0].id)); }
-  return items.sort((a, b) => (mode === "alpha" ? byName : byType)(a[0], b[0]));
-}
+/* Categories view: Main Deck cards in one box per category (drag between boxes to recategorize);
+   the Extra and Side Deck as tiles in the deck's own order. */
 function sectionEl(key, label, extraInfo) {
-  const d = deck(), mode = S.ui.deckSort === "cats" && key !== "main" ? "custom" : S.ui.deckSort;   // category boxes: Main Deck only
-  const items = sortedItems(d, key, mode === "cats" ? "type" : mode);
+  const d = deck(), mode = key === "main" ? "cats" : "custom";
+  const items = orderedItems(d, key);
   let body;
-  if (!items.length) body = h("div", { class: "grid" }, h("div", { class: "empty" }, key === "side" ? "Middle-click a search result to add it here, or drag it here." : "Right-click a search result to add it, or drag it here. Right-click a card in the deck to remove it."));
+  if (!items.length) body = h("div", { class: "grid" }, h("div", { class: "empty" }, EMPTY_HINT[key]));
   else if (mode === "cats") body = null;
   if (mode === "cats") {
     // Every category gets a box, even when empty, so cards can be dragged between them.
@@ -121,16 +119,7 @@ function sectionEl(key, label, extraInfo) {
       h("div", { class: "empty-boxes" }, empty.map(k => box(k, [])), none.length ? null : box(null, []))];
   }
   if (!body && mode !== "cats") body = h("div", { class: "grid" }, items.map(([c, n]) => tile(c, n, key)));
-  const sec = h("div", { class: "section",
-    ondragover: e => { e.preventDefault(); sec.classList.add("drop"); },
-    ondragleave: e => { if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop"); },
-    ondrop: e => { e.preventDefault(); sec.classList.remove("drop");
-      try { const { id, from } = JSON.parse(e.dataTransfer.getData("text/plain"));
-        if (from === key) { if (mode === "custom") reorder(key, id, null); return; }   // dropped on empty space: move to the end
-        if (from) move(id, from, key); else add(id, key); } catch {} } },
-    h("div", { class: "section-h" }, h("h2", {}, label), h("span", { class: "dim" }, (n => `${n} card${n === 1 ? "" : "s"}`)(count(d[key])), extraInfo || "")),
-    body);
-  return sec;
+  return dropZone(h("div", { class: "section" }, sectionHeader(label, key, extraInfo), body), key);
 }
 function mainInfo() {
   const d = deck(); let m = 0, s = 0, t = 0;
@@ -142,6 +131,17 @@ function setDirButton(b) {
   b.textContent = desc ? "▼" : "▲";
   b.title = desc ? "Descending (click for ascending)" : "Ascending (click for descending)";
   b.setAttribute("aria-label", desc ? "Sort descending" : "Sort ascending");
+}
+const DECK_VIEWS = [
+  ["table", "Table", "Every card as a full miniature"],
+  ["sheet", "Sheet", "Decklist form you can fill in and export as a PDF"],
+  ["cats", "Categories", "Main Deck grouped by category"]
+];
+function deckView() {
+  const view = S.ui.deckView;
+  if (view === "sheet") return [sheetView()];
+  const section = view === "cats" ? sectionEl : tableSection;
+  return [section("main", "Main Deck", mainInfo()), section("extra", "Extra Deck"), section("side", "Side Deck")];
 }
 function renderBuild() {
   const root = $("#tab-build"), d = deck(), f = fmt();
@@ -189,13 +189,13 @@ function renderBuild() {
       h("label", { class: "row" }, "Images", imageSelect()),
       imageStatus(),
       h("span", { style: { flexBasis: "100%", height: 0 } }),
-      h("label", { class: "row" }, "Sort", h("select", { "aria-label": "Deck sort order", onchange: e => { S.ui.deckSort = e.target.value; save(); renderBuild(); } },
-        [["custom", "Custom"], ["type", "Card type"], ["alpha", "Alphabetic"], ["cats", "Categories"]].map(([v, l]) => h("option", { value: v, selected: S.ui.deckSort === v }, l)))),
-      S.ui.deckSort === "custom" ? h("span", { class: "dim imgnote" }, "Drag cards onto each other to reorder.") : null,
+      h("div", { class: "seg", role: "group", "aria-label": "Deck view" }, DECK_VIEWS.map(([v, l, tip]) =>
+        h("button", { "aria-pressed": S.ui.deckView === v, title: tip, onclick: () => { S.ui.deckView = v; save(); renderBuild(); } }, l))),
+      h("span", { class: "dim imgnote" }, "Drag cards to reorder. Right-click removes one."),
       h("span", { class: "grow" }),
       h("button", { class: "toggle", "aria-pressed": !!S.ui.overrideLimit, title: "Allow more copies than the format's limit (the deck is still flagged as illegal)",
         onclick: () => { S.ui.overrideLimit = !S.ui.overrideLimit; save(); renderBuild(); toast(S.ui.overrideLimit ? "Card limits overridden" : "Card limits enforced"); } }, "Override card limit")),
-    sectionEl("main", "Main Deck", mainInfo()), sectionEl("extra", "Extra Deck"), sectionEl("side", "Side Deck"));
+    ...deckView(),);
   renderDetail();
   if (keepFocus === "q") $("#q").focus();
 }
@@ -260,4 +260,4 @@ function ydkeDialog() {
   $("#dlg").showModal(); ta.select();
 }
 
-export { byName, byType, dropOnCategory, extraInfo, mainInfo, Q, renderBuild, renderDetail, renderResults, resultRow, SEARCH_SORTS, searchCards, sectionEl, setDirButton, sortedItems, sortResults, ydkeDialog };
+export { byName, byType, DECK_VIEWS, deckView, dropOnCategory, extraInfo, mainInfo, Q, renderBuild, renderDetail, renderResults, resultRow, SEARCH_SORTS, searchCards, sectionEl, setDirButton, sortResults, ydkeDialog };

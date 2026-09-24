@@ -4,7 +4,7 @@ import { DEFAULT_CATS, newDeck } from "./deck.js";
 import { IMGS, probePath, restoreFolder } from "./images.js";
 import { newFormat } from "./legality.js";
 import { changed, fmt, idb, LS, S } from "./store.js";
-import { renderBuild, renderResults, SEARCH_SORTS } from "./tabs/build.js";
+import { DECK_VIEWS, renderBuild, renderResults, SEARCH_SORTS } from "./tabs/build.js";
 import { renderFormat } from "./tabs/format.js";
 import { renderHands, resetSample } from "./tabs/hands.js";
 import { renderSW } from "./tabs/smallworld.js";
@@ -54,6 +54,8 @@ async function init() {
   }
   for (const f of S.formats) { f.over ||= {}; f.pover ||= {}; }
   if (!SEARCH_SORTS[S.ui.searchSort]) S.ui.searchSort = "alpha";
+  if (!DECK_VIEWS.some(([v]) => v === S.ui.deckView)) S.ui.deckView = S.ui.deckSort === "cats" ? "cats" : "table";   // the old Sort menu's Categories became a view
+  delete S.ui.deckSort;
   if (S.ui.img === "local") S.ui.img = "path"; else if (!["off", "folder", "path"].includes(S.ui.img)) S.ui.img = "off";
   const cur = LS.get("cur", {});
   S.deckId = S.decks.some(d => d.id === cur.deck) ? cur.deck : S.decks[0].id;

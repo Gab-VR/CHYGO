@@ -1,7 +1,7 @@
 // ui.js
 import { baseFrame, DARK_FRAMES, frameColor, isMonster, isPend, loadDataFile, subLine, syncData } from "./cards.js";
 import { add, move, reorder } from "./deck.js";
-import { artPos, canRememberFolder, chooseImages, connectFolder, folderReport, IMG_ART, imgOn, IMGS } from "./images.js";
+import { artPos, canRememberFolder, chooseImages, connectFolder, folderReport, IMG_ART, IMG_FULL, imgOn, IMGS } from "./images.js";
 import { deckPoints, inPool, limitLabel, limitOf, pointsOf, totalCopies, validate } from "./legality.js";
 import { changed, deck, fmt, S, save } from "./store.js";
 import { $, $$, h, toast } from "./util.js";
@@ -98,28 +98,58 @@ function stackStyle(n, bad) {
   }
   return sh.length ? { boxShadow: sh.join(", "), marginBottom: layers * STACK_STEP + "px" } : {};
 }
+/* How every card shown in the deck behaves, whichever view draws it:
+   click shows it in the panel, right-click (or Shift-click, Delete, "-") removes a copy,
+   "+" adds one, and dropping another card on it places that card just before it.
+   Inside a category box the drop is left to the box, which changes the category instead. */
+function deckCardEvents(c, sec, boxCat) {
+  return {
+    draggable: true, tabindex: 0, title: `${c.name}\nClick to view. Right-click removes one copy. Drag to reorder.`,
+    oncontextmenu: e => { e.preventDefault(); add(c.id, sec, -1); },
+    ondragstart: e => dragData(e, c.id, sec, boxCat === undefined ? undefined : boxCat ? boxCat.id : null),
+    ondrop: e => {
+      if (e.currentTarget.closest(".catbox")) return;
+      e.preventDefault(); e.stopPropagation();
+      $$(".drop").forEach(x => x.classList.remove("drop"));
+      const data = dropData(e); if (!data) return;
+      if (data.from === sec) reorder(sec, data.id, c.id); else if (data.from) move(data.id, data.from, sec, c.id); else add(data.id, sec, 1, { before: c.id });
+    },
+    onclick: e => { if (e.shiftKey) add(c.id, sec, -1); else { S.sel = c.id; renderTab(); } },
+    onkeydown: e => { if (e.key === "Enter") { S.sel = c.id; renderTab(); } if (e.key === "Delete" || e.key === "-") add(c.id, sec, -1); if (e.key === "+") add(c.id, sec, 1); }
+  };
+}
+// Makes an element accept cards dropped from the search list or another section.
+// Dropped in its own section on empty space, a card moves to the end.
+function dropZone(el, sec) {
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("drop"); });
+  el.addEventListener("dragleave", e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); });
+  el.addEventListener("drop", e => {
+    e.preventDefault(); el.classList.remove("drop");
+    const data = dropData(e); if (!data) return;
+    if (data.from === sec) reorder(sec, data.id, null); else if (data.from) move(data.id, data.from, sec); else add(data.id, sec);
+  });
+  return el;
+}
+const cardIsBad = c => totalCopies(deck(), c.id) > limitOf(c) || !inPool(c);
 function tile(c, n, sec, boxCat) {
   const d = deck(), f = fmt(), dark = DARK_FRAMES.has(baseFrame(c));
   const tags = d.cats.filter(k => (d.tags[c.id] || []).includes(k.id));
-  const bad = totalCopies(d, c.id) > limitOf(c) || !inPool(c);
+  const bad = cardIsBad(c);
   const p = f.points ? pointsOf(c) : 0;
-  const t = h("div", { class: ["tile", n > 1 && "stacked", dark && "dark", isPend(c) && "pend", S.sel === c.id && "sel", bad && "illegal", imgOn() && IMG_ART(c.id) && "art"].filter(Boolean).join(" "),
-    style: Object.assign({ "--fc": frameColor(c) }, stackStyle(n, bad), imgOn() && IMG_ART(c.id) ? Object.assign({ backgroundImage: `url("${IMG_ART(c.id)}")` }, artPos()) : {}),
-    draggable: true, tabindex: 0, title: `${c.name}\nClick to select. Right-click (or Shift-click) removes one.`,
-    oncontextmenu: e => { if (!e.currentTarget.closest(".section")) return; e.preventDefault(); add(c.id, sec, -1); },
-    ondragstart: e => dragData(e, c.id, sec, boxCat === undefined ? undefined : boxCat ? boxCat.id : null),
-    ondrop: e => {                       // Custom order: dropping on a card puts the dragged card before it
-      if (S.ui.deckSort !== "custom" || !e.currentTarget.closest(".section")) return;
-      e.preventDefault(); e.stopPropagation(); e.currentTarget.closest(".section").classList.remove("drop");
-      try { const { id, from } = JSON.parse(e.dataTransfer.getData("text/plain"));
-        if (from === sec) reorder(sec, id, c.id); else if (from) move(id, from, sec, c.id); else add(id, sec, 1, { before: c.id }); } catch {}
-    },
-    onclick: e => { if (e.shiftKey) add(c.id, sec, -1); else { S.sel = c.id; renderTab(); } },
-    onkeydown: e => { if (e.key === "Enter") { S.sel = c.id; renderTab(); } if (e.key === "Delete" || e.key === "-") add(c.id, sec, -1); if (e.key === "+") add(c.id, sec, 1); } },
+  return h("div", Object.assign({ class: ["tile", n > 1 && "stacked", dark && "dark", isPend(c) && "pend", S.sel === c.id && "sel", bad && "illegal", imgOn() && IMG_ART(c.id) && "art"].filter(Boolean).join(" "),
+    style: Object.assign({ "--fc": frameColor(c) }, stackStyle(n, bad), imgOn() && IMG_ART(c.id) ? Object.assign({ backgroundImage: `url("${IMG_ART(c.id)}")` }, artPos()) : {}) },
+    deckCardEvents(c, sec, boxCat)),
     tags.length ? h("div", { class: "tags" }, tags.map(k => h("i", { style: { background: k.color } }))) : null,
     h("div", { class: "nm" }, c.name), h("div", { class: "sub" }, isMonster(c) ? subLine(c).replace(c.race, "").replace(/\s+/g, " ") : c.race),
     h("span", { class: "cnt" }, "×" + n), p ? h("span", { class: "pts" }, p * n + "pt") : null);
-  return t;
+}
+// A full miniature: the whole card picture, or a card-shaped frame with the name if there's none.
+function mini(c, sec) {
+  const pic = imgOn() && IMG_FULL(c.id);
+  return h("div", Object.assign({ class: ["mini", DARK_FRAMES.has(baseFrame(c)) && "dark", isPend(c) && "pend", S.sel === c.id && "sel", cardIsBad(c) && "illegal", pic && "pic"].filter(Boolean).join(" "),
+    style: { "--fc": frameColor(c) } }, deckCardEvents(c, sec)),
+    pic ? h("img", { src: pic, alt: c.name, draggable: false, loading: "lazy", onerror: e => { e.target.closest(".mini").classList.remove("pic"); e.target.remove(); } }) : null,
+    h("span", { class: "mini-name" }, c.name));
 }
 function catChips(id, after) {
   const d = deck(), cur = d.tags[id] || [];
@@ -138,4 +168,4 @@ function cardPicker(onPick, filter = () => true) {
   return h("div", { class: "sugg" }, inp, menu);
 }
 
-export { bubbles, cardPicker, catChips, dragData, dropData, imageSelect, imageState, imageStatus, refreshImageStatus, registerTab, renderHeader, renderSplash, renderTab, setTab, STACK_STEP, stackStyle, TABS, tile };
+export { bubbles, cardIsBad, cardPicker, catChips, deckCardEvents, dragData, dropData, dropZone, mini, imageSelect, imageState, imageStatus, refreshImageStatus, registerTab, renderHeader, renderSplash, renderTab, setTab, STACK_STEP, stackStyle, TABS, tile };

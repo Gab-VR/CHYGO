@@ -23,7 +23,7 @@ const S = {
   cards: new Map(), alias: new Map(), list: [], races: [], gp: {}, gpo: {}, meta: null,
   decks: [], deckId: null, formats: [], fmtId: null, sel: null, tab: "build",
   ui: Object.assign({ img: "off", imgTpl: "pics/{id}.jpg", artTpl: "", textSearch: false,
-    deckSort: "custom", searchSort: "alpha", searchDir: "asc", overrideLimit: false }, LS.get("ui", {}))
+    deckView: "table", searchSort: "alpha", searchDir: "asc", overrideLimit: false }, LS.get("ui", {}))
 };
 const card = id => S.cards.get(S.alias.get(+id) ?? +id);
 const deck = () => S.decks.find(d => d.id === S.deckId);

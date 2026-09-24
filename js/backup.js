@@ -17,7 +17,7 @@ function restoreAll(b) {
     if (S.formats.some(x => x.name === f.name && JSON.stringify({ ...x, id: 0 }) === JSON.stringify({ ...f, id: 0 }))) continue;   // identical format already here
     if (fmtIds.has(f.id)) f.id = uid(); f.over ||= {}; f.pover ||= {}; S.formats.push(f);
   }
-  if (b.ui) for (const k of ["deckSort", "searchSort", "searchDir", "textSearch"]) if (b.ui[k] != null) S.ui[k] = b.ui[k];
+  if (b.ui) for (const k of ["deckView", "searchSort", "searchDir", "textSearch", "sheet"]) if (b.ui[k] != null) S.ui[k] = b.ui[k];
   S.deckId = S.decks[S.decks.length - 1].id;
   return { decks: b.decks.length, formats: (b.formats || []).length };
 }

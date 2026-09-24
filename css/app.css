@@ -206,3 +206,60 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
   .sw canvas{height:420px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- deck views ---------- */
+/* Table: full miniatures on a mat, one per copy */
+.mat{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:5px;padding:10px;border-radius:12px;
+  background:radial-gradient(ellipse at 50% 0%,#2c3553,#1a2032 75%);border:1px solid var(--line);box-shadow:inset 0 2px 12px rgba(0,0,0,.35);min-height:112px;align-content:start}
+.section.drop>.mat,.mat.drop{outline:2px dashed var(--gold);outline-offset:2px}
+.mat-hint{grid-column:1/-1;align-self:center;text-align:center;color:var(--dim);font-size:13px;padding:24px 8px}
+.mini{position:relative;aspect-ratio:421/614;border-radius:4px;overflow:hidden;cursor:pointer;background:var(--fc);
+  border:1px solid rgba(0,0,0,.45);box-shadow:0 1px 3px rgba(0,0,0,.45);color:#1b1408}
+.mini.dark{color:#f0ece0}
+.mini.pend{background:linear-gradient(180deg,var(--fc) 55%,var(--f-spell) 55%)}
+.mini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.mini-name{position:absolute;left:4px;right:4px;top:5px;font:700 9px/1.15 var(--serif);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.mini.pic .mini-name{display:none}
+.mini.sel{outline:2px solid var(--gold2);outline-offset:1px;z-index:1}
+.mini.illegal{box-shadow:0 0 0 2px var(--bad)}
+.mini:hover{transform:translateY(-2px)}
+@media (prefers-reduced-motion:reduce){.mini:hover{transform:none}}
+
+/* Sheet: a paper version of the deck registration form */
+.kde{--ink:#1d1d1f;--rule:#8f8f96;--head:#d9d9dc;background:#f6f4ee;color:var(--ink);border-radius:6px;padding:14px;
+  box-shadow:0 6px 24px rgba(0,0,0,.35);font-family:var(--sans)}
+.kde input{background:#fff;color:var(--ink);border:1px solid var(--rule);border-radius:3px;width:100%}
+.kde-top{display:grid;grid-template-columns:1fr auto;gap:10px 14px;margin-bottom:12px}
+.kde-note{grid-column:1/-1;font-size:12px;color:#5b5b63}
+.kde-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kde-field span{display:block;font-size:11px;color:#55555c;margin-bottom:2px}
+.kde-judge{display:grid;gap:6px;width:110px}
+.kde-judge div{border:1px solid var(--rule);background:#fff;text-align:center;padding:3px}
+.kde-judge span{display:block;font-size:10px;color:#55555c}
+.kde-judge b{font-size:18px}
+.kde-main{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1.5px solid var(--ink)}
+.kde-bottom{display:grid;grid-template-columns:repeat(2,minmax(0,1fr)) minmax(160px,.9fr);gap:0 12px;margin-top:10px;align-items:start}
+.kde-bottom>.kde-col{border:1.5px solid var(--ink)}
+.kde-main>.kde-col+.kde-col{border-left:1.5px solid var(--ink)}
+.kde-colh{background:var(--head);text-align:center;font-weight:800;font-size:12px;letter-spacing:.04em;padding:3px;border-bottom:1.5px solid var(--ink)}
+.kde-row,.kde-total{display:grid;grid-template-columns:26px 1fr;height:23px;box-sizing:border-box;border-bottom:1px solid var(--rule)}
+.kde-total{height:25px}
+.kde-row .q,.kde-total .q{border-right:1px solid var(--rule);text-align:center;font-weight:700;align-self:stretch;display:flex;align-items:center;justify-content:center}
+.kde-row .n{padding:0 6px;font-size:12.5px;line-height:1;align-self:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kde-row.filled{cursor:pointer}
+.kde-row.filled:hover{background:#ebe7da}
+.kde-row.sel{background:#f1e3b3}
+.kde-row.illegal .n{color:#b0291c;font-weight:600}
+.kde-row.over{background:#f7d4cf}
+.kde-total{border-bottom:0;border-top:1.5px solid var(--ink);font-size:11.5px;font-weight:800}
+.kde-total .q{background:var(--head)}
+.kde-total .n{padding:3px 6px;align-self:center}
+.kde .drop{outline:2px dashed #b8912f;outline-offset:2px}
+.kde-export{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#44444a}
+.kde-export p{margin:0}
+.kde-export .warn{color:#a0400c}
+@media (max-width:760px){
+  .kde-main,.kde-bottom,.kde-fields{grid-template-columns:1fr}
+  .kde-top{grid-template-columns:1fr}
+  .kde-main>.kde-col+.kde-col{border-left:0;border-top:1.5px solid var(--ink)}
+}
