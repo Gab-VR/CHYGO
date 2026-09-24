@@ -3,9 +3,13 @@
 
 Just another Deckbuilder app.
 
+## About the data
+
+The data is pulled from YGOProDeck. For more information see `https://ygoprodeck.com/api-guide/`. The database updates on GitHub's servers once a day.
+
 ## Using it locally
 
-Browsers won't let a page opened from `file://` read `data/`. Either click
+Click
 **Load cards.json** in the app, or serve the folder:
 
 ```
