@@ -58,6 +58,7 @@ main{padding:14px 16px}
 .results{max-height:calc(100vh - 330px);min-height:200px;overflow:auto;margin-top:6px;border-top:1px solid var(--line)}
 .res{display:flex;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px solid #2f3752;cursor:pointer}
 .res:hover{background:var(--panel2)}
+.res.sel{background:var(--panel2);box-shadow:inset 3px 0 0 var(--gold)}
 .res .sw{width:8px;align-self:stretch;border-radius:2px;flex:none}
 .res .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .res .sub{font-size:12px;color:var(--dim)}
@@ -103,6 +104,13 @@ button.toggle[aria-pressed=true]{background:var(--gold);color:#241c08;border-col
 .catbox{border:1px solid color-mix(in srgb,var(--c) 55%,transparent);background:color-mix(in srgb,var(--c) 7%,transparent);border-radius:8px;padding:6px 6px 8px;margin-bottom:8px}
 .catbox-h{display:flex;gap:8px;align-items:baseline;font-size:13px;margin:0 0 6px 2px}
 .catbox-h b{color:var(--c);font-family:var(--serif);font-size:14px}
+.catbox.drop{outline:2px solid var(--c);outline-offset:1px}
+.empty-boxes{display:flex;flex-wrap:wrap;gap:6px}
+.catbox.empty-box{flex:1 1 120px;margin:0;padding:8px 10px;border-style:dashed;background:transparent}
+.catbox.empty-box .catbox-h{margin:0;justify-content:center}
+.catbox.empty-box .catbox-h b{white-space:nowrap}
+.catbox.empty-box .catbox-h span{display:none}
+button.dir{padding:4px 9px;font-size:13px;line-height:1}
 .res-group{position:sticky;top:0;z-index:1;background:var(--panel);padding:8px 4px 3px;font-size:12px;font-weight:700;color:var(--c,var(--dim));border-bottom:1px solid var(--line)}
 
 /* detail panel */
@@ -136,6 +144,8 @@ button.toggle[aria-pressed=true]{background:var(--gold);color:#241c08;border-col
 .legal:hover .pop,.legal:focus-within .pop,.legal.open .pop{display:block}
 .legal .pop li{margin:2px 0} .legal .pop li.warn{color:var(--warn)}
 .imgnote{font-size:12px}
+.img-status{gap:6px;min-width:0}
+.img-status .imgnote{max-width:52ch}
 
 /* hands */
 .hands{display:grid;grid-template-columns:300px minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
@@ -341,7 +351,7 @@ const S = {
   cards: new Map(), alias: new Map(), list: [], races: [], gp: {}, gpo: {}, meta: null,
   decks: [], deckId: null, formats: [], fmtId: null, sel: null, tab: "build",
   ui: Object.assign({ img: "off", imgTpl: "pics/{id}.jpg", artTpl: "", textSearch: false,
-    deckSort: "custom", searchSort: "alpha", overrideLimit: false }, LS.get("ui", {}))
+    deckSort: "custom", searchSort: "alpha", searchDir: "asc", overrideLimit: false }, LS.get("ui", {}))
 };
 const card = id => S.cards.get(S.alias.get(+id) ?? +id);
 const deck = () => S.decks.find(d => d.id === S.deckId);
@@ -574,7 +584,8 @@ async function* walkDir(dir, depth = 0) {
   for (const d of subdirs) yield* walkDir(d, depth + 1);   // top-level files win over subfolders like pics/field
 }
 async function indexHandle(dir) {
-  const files = [], diag = newDiag(); toast("Reading image folder…");
+  const files = [], diag = newDiag();
+  IMGS.folderName = dir.name; IMGS.reading = "listing files"; refreshImageStatus();
   const handles = [];
   for await (const fh of walkDir(dir)) {
     if (IMG_NAME.test(fh.name)) handles.push(fh);
@@ -583,13 +594,14 @@ async function indexHandle(dir) {
   for (let i = 0; i < handles.length; i += 250) {          // open files in parallel batches, not one by one
     const got = await Promise.allSettled(handles.slice(i, i + 250).map(fh => fh.getFile()));
     for (const r of got) { if (r.status === "fulfilled") files.push(r.value); else { diag.unreadable++; diag.error ||= `${r.reason.name}: ${r.reason.message}`; } }
-    if (handles.length > 1000) toast(`Reading image folder… ${Math.min(i + 250, handles.length)}/${handles.length}`);
+    IMGS.reading = `${Math.min(i + 250, handles.length).toLocaleString()}/${handles.length.toLocaleString()}`; refreshImageStatus();
   }
   // Cloud-only files list fine but fail when read, so test one.
   if (files.length) {
     try { await files[0].slice(0, 16).arrayBuffer(); }
     catch (e) { diag.error = `${e.name}: ${e.message}`; diag.unreadable = files.length; files.length = 0; }
   }
+  IMGS.reading = null;
   indexFiles(files, diag);          // counts the readable images into diag
   diag.scanned += diag.unreadable;
   IMGS.needsPermission = false;
@@ -601,29 +613,43 @@ function folderReport() {
   if (IMGS.urls.size) return coverageText();
   if (d.unreadable) return `Found ${d.unreadable} images but couldn't read them (${d.error}). Choose the folder again.`;
   if (d.gone) return "The image folder you chose before was moved or deleted. Choose it again from its new location.";
+  if (d.aborted) return d.via ? "No folder was selected." : "Edge closed the folder dialog without giving the app a folder. Press the button to try again.";
   if (d.error) return `Couldn't read the folder: ${d.error}.`;
   if (!d.scanned) return "That folder is empty. Pick the folder that directly contains the image files.";
   return `None of the ${d.scanned} files are named by passcode (like 89631139.jpg). Examples found: ${d.others.join(", ")}.`;
 }
-function pickWithInput() {   // fallback for browsers without the folder picker; needs a click right before it
+// Second route: the standard folder field ("set" a folder). Works in any browser, and nothing is
+// sent anywhere (the files are only read by this page), but the choice lasts one session.
+function pickWithInput() {
   return new Promise(res => {
-    const inp = h("input", { type: "file", webkitdirectory: true, multiple: true });
-    inp.addEventListener("change", () => { indexFiles(inp.files); res(true); });
-    inp.addEventListener("cancel", () => res(false));
+    const inp = h("input", { type: "file", webkitdirectory: true, multiple: true, style: { display: "none" } });
+    document.body.append(inp);
+    const done = v => { inp.remove(); res(v); };
+    inp.addEventListener("change", () => {
+      const files = [...inp.files];
+      IMGS.handle = null; IMGS.needsPermission = false;
+      IMGS.folderName = files[0] && files[0].webkitRelativePath ? files[0].webkitRelativePath.split("/")[0] : "your folder";
+      indexFiles(files); IMGS.session = true; done(true);
+    });
+    inp.addEventListener("cancel", () => { IMGS.diag = Object.assign(newDiag(), { aborted: true, error: "cancelled", via: "file picker" }); done(true); });
     inp.click();
   });
 }
 async function pickFolder() {
   if (!window.showDirectoryPicker) return pickWithInput();
   let d;
-  try { d = await window.showDirectoryPicker({ id: "deck-forge-images", mode: "read" }); }
-  catch (e) { if (e.name === "AbortError") return false; IMGS.diag = Object.assign(newDiag(), { error: `${e.name}: ${e.message}` }); return true; }
-  IMGS.handle = d;
+  try { d = await window.showDirectoryPicker({ mode: "read" }); }
+  catch (e) {
+    // AbortError covers both "Cancel" and Edge refusing the folder (e.g. "contains system files").
+    IMGS.diag = Object.assign(newDiag(), { aborted: e.name === "AbortError", error: `${e.name}: ${e.message}` });
+    return true;
+  }
+  IMGS.handle = d; IMGS.session = false;
   try { await idb.set("imgdir", d); } catch {}
-  try { await indexHandle(d); } catch (e) { IMGS.diag = Object.assign(IMGS.diag || newDiag(), { error: `${e.name}: ${e.message}` }); }
+  try { await indexHandle(d); } catch (e) { IMGS.reading = null; IMGS.diag = Object.assign(IMGS.diag || newDiag(), { error: `${e.name}: ${e.message}` }); }
   return true;
 }
-const BUILD = "2026-09-24 sorting-and-limits";
+const BUILD = "2026-09-24 click-to-view";
 // The saved folder may have been moved, renamed or deleted since last time; then forget it
 // so the button offers a fresh "Choose image folder" instead of reconnecting to a dead path.
 async function forgetFolder(reason) {
@@ -633,12 +659,15 @@ async function forgetFolder(reason) {
 }
 const isGone = e => e && (e.name === "NotFoundError" || e.name === "NotReadableError" && /not found|could not be found/i.test(e.message));
 async function restoreFolder() {
-  const d = await idb.get("imgdir"); if (!d || !d.queryPermission) return;
+  const d = await idb.get("imgdir");
+  IMGS.restore = !d ? "no saved folder" : !d.queryPermission ? "saved folder is not a folder handle" : "found";
+  if (!d || !d.queryPermission) return;
   IMGS.handle = d;
   let perm;
   try { perm = await d.queryPermission({ mode: "read" }); } catch { return forgetFolder("saved folder unavailable"); }
+  IMGS.restore = `permission ${perm}`;
   if (perm !== "granted") { IMGS.needsPermission = true; return; }
-  try { await indexHandle(d); } catch (e) { return isGone(e) ? forgetFolder("moved or deleted") : (IMGS.needsPermission = true); }
+  try { await indexHandle(d); } catch (e) { IMGS.reading = null; IMGS.restore = `read failed: ${e.name}: ${e.message}`; return isGone(e) ? forgetFolder("moved or deleted") : (IMGS.needsPermission = true); }
 }
 async function reconnectFolder() {
   try {
@@ -650,13 +679,33 @@ async function reconnectFolder() {
   }
 }
 // Called from a button click, so the browser allows the folder dialog.
+// Folder access that Edge remembers only works on http(s) pages; elsewhere use the folder field.
+const canRememberFolder = () => !!window.showDirectoryPicker && window.isSecureContext && location.protocol !== "file:";
 async function connectFolder() {
+  if (!canRememberFolder()) return connectWithInput();   // decided before any await, so the click still counts
+  IMGS.reading = null; IMGS.diag = null;
   const ok = IMGS.needsPermission ? await reconnectFolder() : await pickFolder();
-  if (ok) toast(folderReport() || "Done");
+  if (ok && IMGS.urls.size) toast(`${IMGS.urls.size.toLocaleString()} pictures loaded`);
+  probePath(); renderResults(); renderTab();
+}
+async function connectWithInput() {   // must run straight from the click, so no await before pickWithInput
+  IMGS.reading = null; IMGS.diag = null;
+  const p = pickWithInput(); await p;
+  if (IMGS.urls.size) toast(`${IMGS.urls.size.toLocaleString()} pictures loaded`);
   probePath(); renderResults(); renderTab();
 }
 // Switching modes never opens a dialog by itself (a dropdown change doesn't always count as a click);
 // folder mode shows a "Choose image folder" button instead.
+// Everything needed to debug pictures, for pasting into a bug report.
+async function imageDiagnostics() {
+  let saved = null, perm = null;
+  try { saved = await idb.get("imgdir"); } catch (e) { saved = `error ${e.name}`; }
+  try { if (saved && saved.queryPermission) perm = await saved.queryPermission({ mode: "read" }); } catch (e) { perm = `error ${e.name}`; }
+  return JSON.stringify({ build: BUILD, origin: location.origin, secureContext: window.isSecureContext, mode: S.ui.img, pickerAvailable: !!window.showDirectoryPicker,
+    indexedDB: !!idb.db, savedFolder: saved ? (saved.name || typeof saved) : null, permission: perm, restore: IMGS.restore || null,
+    folderName: IMGS.folderName || null, sessionOnly: !!IMGS.session, pictures: IMGS.urls.size, needsPermission: IMGS.needsPermission, reading: IMGS.reading || null,
+    diag: IMGS.diag || null, probe: { ok: IMGS.pathHits, failed: IMGS.pathMisses }, cards: S.cards.size, browser: navigator.userAgent }, null, 1);
+}
 function chooseImages(mode) { S.ui.img = mode; save(); probePath(); renderResults(); renderTab(); }
 
 /* ================= header ================= */
@@ -699,6 +748,29 @@ function renderSplash(root) {
       h("button", { onclick: async () => { st.textContent = "Checking…"; try { const r = await syncData(m => st.textContent = m); if (r.updated) { toast(`Loaded ${S.meta.n} cards`); changed(); } else st.textContent = `data/meta.json isn't reachable (${r.err || "no data"}).`; } catch (err) { st.textContent = err.message; } } }, "Try again")),
     st, file));
 }
+/* One place that always says what the pictures are doing, so a problem is never silent. */
+function imageState() {
+  if (S.ui.img === "off") return { text: "Pictures are off.", cls: "dim" };
+  if (S.ui.img === "path") {
+    if (IMGS.pathMisses && !IMGS.pathHits) return { text: `No pictures found at ${S.ui.imgTpl}.`, cls: "warn" };
+    return { text: `Pictures from ${S.ui.imgTpl}.`, cls: "dim" };
+  }
+  if (IMGS.reading) return { text: `Reading picture folder… ${IMGS.reading}`, cls: "dim" };
+  if (!canRememberFolder() && !IMGS.urls.size) return { text: location.protocol === "file:"
+      ? "Opened as a file, so the folder must be chosen each visit. Serve the app on localhost to have it remembered (see README)."
+      : `On ${location.origin} the folder must be chosen each visit. Open the app at http://localhost:${location.port || 80} to have it remembered.`, cls: "dim", btn: "Choose image folder" };
+  if (IMGS.needsPermission) return { text: "Edge needs your permission to read the picture folder again.", cls: "warn", btn: "Reconnect image folder" };
+  if (!IMGS.urls.size) return IMGS.diag ? { text: folderReport(), cls: "warn", btn: "Choose image folder" } : { text: "No picture folder chosen yet.", cls: "warn", btn: "Choose image folder" };
+  if (IMGS.pathMisses) return { text: folderReport(), cls: "warn", btn: "Choose image folder" };
+  return { text: `${IMGS.urls.size.toLocaleString()} pictures from "${IMGS.folderName || "your folder"}"${IMGS.session ? " (for this session)" : ""}.`, cls: "dim" };
+}
+function imageStatus() {
+  const st = imageState();
+  return h("span", { class: "row img-status", id: "imgStatus" },
+    st.btn ? h("button", { class: "small primary", onclick: connectFolder }, st.btn) : null,
+    h("span", { class: st.cls + " imgnote" }, st.text));
+}
+function refreshImageStatus() { const el = $("#imgStatus"); if (el) el.replaceWith(imageStatus()); }
 function imageSelect() {
   return h("select", { "aria-label": "Card images", onchange: e => chooseImages(e.target.value) },
     [["off", "Off"], ["folder", "Image folder"], ["path", "Image URL path"]].map(([v, l]) => h("option", { value: v, selected: S.ui.img === v }, l)));
@@ -730,7 +802,8 @@ function searchCards() {
   }
   return out;
 }
-function dragData(e, id, from) { e.dataTransfer.setData("text/plain", JSON.stringify({ id, from })); e.dataTransfer.effectAllowed = "copyMove"; }
+function dragData(e, id, from, cat) { e.dataTransfer.setData("text/plain", JSON.stringify({ id, from, cat })); e.dataTransfer.effectAllowed = "copyMove"; }
+const dropData = e => { try { return JSON.parse(e.dataTransfer.getData("text/plain")); } catch { return null; } };
 function bubbles(c, f = fmt()) {
   const lab = limitLabel(c, f), p = f.points ? pointsOf(c) : 0;
   if (!lab && !p) return null;
@@ -739,33 +812,57 @@ function bubbles(c, f = fmt()) {
     p ? h("span", { class: "bub pts", title: `${f.name} points` }, `${p} pts`) : null);
 }
 function resultRow(c) {
-  return h("div", { class: "res", draggable: true, title: "Click to add, Alt-click to add to Side",
+  // Left click only shows the card; right click adds to Main/Extra, middle click adds to Side.
+  const select = () => { S.sel = c.id; $$(".res.sel").forEach(r => r.classList.remove("sel")); row.classList.add("sel"); renderDetail(); };
+  const row = h("div", { class: "res" + (S.sel === c.id ? " sel" : ""), draggable: true, tabindex: 0,
+    title: `${c.name}\nClick to view. Right-click adds to the ${isExtra(c) ? "Extra" : "Main"} Deck, middle-click adds to the Side Deck, or drag it.`,
     ondragstart: e => dragData(e, c.id, null),
-    onclick: e => add(c.id, e.altKey ? "side" : null) },
-    imgOn() ? h("img", { src: IMG_ART(c.id), alt: "", loading: "lazy", style: Object.assign({ background: frameColor(c) }, artPos().backgroundSize ? { objectPosition: "50% 28%" } : {}), onerror: e => { e.target.removeAttribute("src"); } }) : h("span", { class: "sw", style: { background: frameColor(c) } }),
+    onclick: select,
+    oncontextmenu: e => { e.preventDefault(); add(c.id, null); },
+    onmousedown: e => { if (e.button === 1) e.preventDefault(); },          // stop the middle-button autoscroll
+    onauxclick: e => { if (e.button === 1) { e.preventDefault(); add(c.id, "side"); } },
+    onkeydown: e => { if (e.key === "Enter") select(); else if (e.key === "+") add(c.id, null); else if (e.key.toLowerCase() === "s") add(c.id, "side"); } },
+    imgOn() && IMG_ART(c.id) ? h("img", { src: IMG_ART(c.id), alt: "", loading: "lazy", style: Object.assign({ background: frameColor(c) }, artPos().backgroundSize ? { objectPosition: "50% 28%" } : {}), onerror: e => { e.target.replaceWith(h("span", { class: "sw", style: { background: frameColor(c) } })); } }) : h("span", { class: "sw", style: { background: frameColor(c) } }),
     h("div", { style: { minWidth: 0 } }, h("div", { class: "nm" }, c.name), h("div", { class: "sub" }, subLine(c))),
     bubbles(c));
+  return row;
 }
 const byName = (a, b) => a.name.localeCompare(b.name);
 const byType = (a, b) => sortKey(a).localeCompare(sortKey(b));
+/* Stat sorts group cards first: effect > normal > link > xyz > synchro > fusion > spell > trap,
+   then order by the stat inside each group. Cards without the stat go to the end of their group. */
+function kindRank(c) {
+  if (isSpell(c)) return 6;
+  if (isTrap(c)) return 7;
+  const f = baseFrame(c);
+  if (f === "link") return 2; if (f === "xyz") return 3; if (f === "synchro") return 4; if (f === "fusion") return 5;
+  return f === "normal" ? 1 : 0;                      // effect, ritual and pendulum effect monsters
+}
+const releaseDate = c => c.tcg || c.ocg || null;
+const levelOf = c => isLink(c) ? c.link : c.level;
+const SEARCH_SORTS = {
+  alpha: { label: "Alphabetic" },
+  date:  { label: "Release date", key: releaseDate, grouped: false },
+  atk:   { label: "ATK", key: c => statOk(c.atk) ? c.atk : null, grouped: true },
+  def:   { label: "DEF", key: c => isLink(c) || !statOk(c.def) ? null : c.def, grouped: true },
+  level: { label: "Level / Rank / Rating", key: c => levelOf(c) ?? null, grouped: true }
+};
+function sortResults(res, mode, dir) {
+  const s = SEARCH_SORTS[mode] || SEARCH_SORTS.alpha, sign = dir === "desc" ? -1 : 1;
+  if (!s.key) return res.sort((a, b) => sign * byName(a, b));
+  return res.sort((a, b) => {
+    if (s.grouped) { const g = kindRank(a) - kindRank(b); if (g) return g; }
+    const ka = s.key(a), kb = s.key(b);
+    if (ka == null || kb == null) return ka == null && kb == null ? byName(a, b) : ka == null ? 1 : -1;   // missing: always last
+    return sign * (ka < kb ? -1 : ka > kb ? 1 : 0) || byName(a, b);
+  });
+}
 function renderResults() {
   const box = $("#results"); if (!box) return;
-  const res = searchCards(), d = deck(), mode = S.ui.searchSort;
+  const res = sortResults(searchCards(), S.ui.searchSort, S.ui.searchDir);
   $("#resCount").textContent = `${res.length} card${res.length === 1 ? "" : "s"}`;
-  res.sort(mode === "type" ? byType : byName);
-  if (mode === "cats") {                   // tagged cards first (in category order), so they aren't cut off by "Show more"
-    const rank = c => { const k = primaryCat(d, c.id); return k ? d.cats.indexOf(k) : d.cats.length; };
-    res.sort((a, b) => rank(a) - rank(b) || byName(a, b));
-  }
-  const shown = res.slice(0, Q.limit), more = res.length > Q.limit
-    ? h("button", { class: "ghost", style: { width: "100%" }, onclick: () => { Q.limit += 150; renderResults(); } }, "Show more") : null;
-  if (mode !== "cats") return box.replaceChildren(...shown.map(resultRow), more);
-  // Categories: cards you've tagged in this deck, grouped under each category, then everything else.
-  const groups = d.cats.map(k => [k, []]), other = [];
-  for (const c of shown) { const k = primaryCat(d, c.id); k ? groups.find(g => g[0] === k)[1].push(c) : other.push(c); }
-  box.replaceChildren(
-    ...groups.filter(g => g[1].length).flatMap(([k, cs]) => [h("div", { class: "res-group", style: { "--c": k.color } }, `${k.name} (${cs.length})`), ...cs.map(resultRow)]),
-    other.length ? h("div", { class: "res-group" }, `Not in a category (${other.length})`) : null, ...other.map(resultRow), more);
+  box.replaceChildren(...res.slice(0, Q.limit).map(resultRow),
+    res.length > Q.limit ? h("button", { class: "ghost", style: { width: "100%" }, onclick: () => { Q.limit += 150; renderResults(); } }, "Show more") : null);
 }
 /* Copies are drawn as cards stacked behind the tile, each peeking out STEP px lower and a little
    narrower and darker, so 1, 2 and 3 copies read at a glance. Box-shadows need no extra DOM. */
@@ -780,7 +877,7 @@ function stackStyle(n, bad) {
   }
   return sh.length ? { boxShadow: sh.join(", "), marginBottom: layers * STACK_STEP + "px" } : {};
 }
-function tile(c, n, sec) {
+function tile(c, n, sec, boxCat) {
   const d = deck(), f = fmt(), dark = DARK_FRAMES.has(baseFrame(c));
   const tags = d.cats.filter(k => (d.tags[c.id] || []).includes(k.id));
   const bad = totalCopies(d, c.id) > limitOf(c) || !inPool(c);
@@ -789,7 +886,7 @@ function tile(c, n, sec) {
     style: Object.assign({ "--fc": frameColor(c) }, stackStyle(n, bad), imgOn() && IMG_ART(c.id) ? Object.assign({ backgroundImage: `url("${IMG_ART(c.id)}")` }, artPos()) : {}),
     draggable: true, tabindex: 0, title: `${c.name}\nClick to select. Right-click (or Shift-click) removes one.`,
     oncontextmenu: e => { if (!e.currentTarget.closest(".section")) return; e.preventDefault(); add(c.id, sec, -1); },
-    ondragstart: e => dragData(e, c.id, sec),
+    ondragstart: e => dragData(e, c.id, sec, boxCat === undefined ? undefined : boxCat ? boxCat.id : null),
     ondrop: e => {                       // Custom order: dropping on a card puts the dragged card before it
       if (S.ui.deckSort !== "custom" || !e.currentTarget.closest(".section")) return;
       e.preventDefault(); e.stopPropagation(); e.currentTarget.closest(".section").classList.remove("drop");
@@ -803,24 +900,51 @@ function tile(c, n, sec) {
     h("span", { class: "cnt" }, "×" + n), p ? h("span", { class: "pts" }, p * n + "pt") : null);
   return t;
 }
+/* Dropping a card on a category box: move it to that section if needed, then swap the category it
+   was shown under for the new one ("Not in a category" clears its categories). */
+function dropOnCategory(data, key, k) {
+  if (!data) return;
+  const d = deck(), c = card(data.id); if (!c) return;
+  if (data.from !== key) {
+    if (data.from) move(c.id, data.from, key); else if (!add(c.id, key, 1, { quiet: true })) return;
+  }
+  if (!d[key][c.id] && !(isExtra(c) && key === "main")) { changed(); return; }   // e.g. refused by the card limit
+  let tags = d.tags[c.id] || [];
+  if (!k) tags = [];
+  else { const was = data.cat ?? (primaryCat(d, c.id) || {}).id; tags = tags.filter(t => t !== was && t !== k.id); tags.unshift(k.id); }
+  d.tags[c.id] = tags; S.sel = c.id; changed();
+}
 function sortedItems(d, key, mode = S.ui.deckSort) {
   const items = Object.entries(d[key]).map(([id, n]) => [card(id), n]).filter(([c]) => c);
   if (mode === "custom") { const o = ensureOrder(d)[key]; return items.sort((a, b) => o.indexOf(a[0].id) - o.indexOf(b[0].id)); }
   return items.sort((a, b) => (mode === "alpha" ? byName : byType)(a[0], b[0]));
 }
 function sectionEl(key, label, extraInfo) {
-  const d = deck(), mode = S.ui.deckSort;
+  const d = deck(), mode = S.ui.deckSort === "cats" && key !== "main" ? "custom" : S.ui.deckSort;   // category boxes: Main Deck only
   const items = sortedItems(d, key, mode === "cats" ? "type" : mode);
   let body;
-  if (!items.length) body = h("div", { class: "grid" }, h("div", { class: "empty" }, key === "side" ? "Drag cards here, or Alt-click a search result." : "Click a search result to add it, or drag it here. Right-click a card to remove it."));
-  else if (mode === "cats") {
-    const boxes = d.cats.map(k => [k, []]), none = [];
-    for (const it of items) { const k = primaryCat(d, it[0].id); k ? boxes.find(b => b[0] === k)[1].push(it) : none.push(it); }
-    const box = (k, its) => h("div", { class: "catbox", style: { "--c": k ? k.color : "#8b8fa3" } },
-      h("div", { class: "catbox-h" }, h("b", {}, k ? k.name : "Not in a category"), h("span", { class: "dim" }, `${its.reduce((a, [, n]) => a + n, 0)} cards`)),
-      h("div", { class: "grid" }, its.map(([c, n]) => tile(c, n, key))));
-    body = [...boxes.filter(b => b[1].length).map(([k, its]) => box(k, its)), none.length ? box(null, none) : null];
-  } else body = h("div", { class: "grid" }, items.map(([c, n]) => tile(c, n, key)));
+  if (!items.length) body = h("div", { class: "grid" }, h("div", { class: "empty" }, key === "side" ? "Middle-click a search result to add it here, or drag it here." : "Right-click a search result to add it, or drag it here. Right-click a card in the deck to remove it."));
+  else if (mode === "cats") body = null;
+  if (mode === "cats") {
+    // Every category gets a box, even when empty, so cards can be dragged between them.
+    const groups = new Map(d.cats.map(k => [k.id, []])), none = [];
+    for (const it of items) { const k = primaryCat(d, it[0].id); k ? groups.get(k.id).push(it) : none.push(it); }
+    const box = (k, its) => {
+      const el = h("div", { class: "catbox" + (its.length ? "" : " empty-box"), style: { "--c": k ? k.color : "#8b8fa3" },
+        ondragover: e => { e.preventDefault(); e.stopPropagation(); el.classList.add("drop"); },
+        ondragleave: e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop"); },
+        ondrop: e => { e.preventDefault(); e.stopPropagation(); el.classList.remove("drop"); dropOnCategory(dropData(e), key, k); },
+        title: its.length ? null : `Drag cards here to put them in ${k ? k.name : "no category"}` },
+        h("div", { class: "catbox-h" }, h("b", {}, k ? k.name : "Not in a category"),
+          h("span", { class: "dim" }, its.length ? (n => `${n} card${n === 1 ? "" : "s"}`)(its.reduce((a, [, n]) => a + n, 0)) : "Drag cards here")),
+        its.length ? h("div", { class: "grid" }, its.map(([c, n]) => tile(c, n, key, k))) : null);
+      return el;
+    };
+    const full = d.cats.filter(k => groups.get(k.id).length), empty = d.cats.filter(k => !groups.get(k.id).length);
+    body = [...full.map(k => box(k, groups.get(k.id))), none.length ? box(null, none) : null,
+      h("div", { class: "empty-boxes" }, empty.map(k => box(k, [])), none.length ? null : box(null, []))];
+  }
+  if (!body && mode !== "cats") body = h("div", { class: "grid" }, items.map(([c, n]) => tile(c, n, key)));
   const sec = h("div", { class: "section",
     ondragover: e => { e.preventDefault(); sec.classList.add("drop"); },
     ondragleave: e => { if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop"); },
@@ -828,7 +952,7 @@ function sectionEl(key, label, extraInfo) {
       try { const { id, from } = JSON.parse(e.dataTransfer.getData("text/plain"));
         if (from === key) { if (mode === "custom") reorder(key, id, null); return; }   // dropped on empty space: move to the end
         if (from) move(id, from, key); else add(id, key); } catch {} } },
-    h("div", { class: "section-h" }, h("h2", {}, label), h("span", { class: "dim" }, `${count(d[key])} cards`, extraInfo || "")),
+    h("div", { class: "section-h" }, h("h2", {}, label), h("span", { class: "dim" }, (n => `${n} card${n === 1 ? "" : "s"}`)(count(d[key])), extraInfo || "")),
     body);
   return sec;
 }
@@ -836,6 +960,12 @@ function mainInfo() {
   const d = deck(); let m = 0, s = 0, t = 0;
   for (const [id, n] of Object.entries(d.main)) { const c = card(id); if (!c) continue; isMonster(c) ? m += n : isSpell(c) ? s += n : t += n; }
   return `  (${m} monsters, ${s} spells, ${t} traps)`;
+}
+function setDirButton(b) {
+  const desc = S.ui.searchDir === "desc";
+  b.textContent = desc ? "▼" : "▲";
+  b.title = desc ? "Descending (click for ascending)" : "Ascending (click for descending)";
+  b.setAttribute("aria-label", desc ? "Sort descending" : "Sort ascending");
 }
 function renderBuild() {
   const root = $("#tab-build"), d = deck(), f = fmt();
@@ -859,12 +989,15 @@ function renderBuild() {
           h("input", { type: "checkbox", checked: S.ui.textSearch, onchange: e => { S.ui.textSearch = e.target.checked; save(); renderResults(); } }), "Match card text"),
         h("label", { class: "row" },
           h("input", { type: "checkbox", checked: Q.legal, onchange: e => { Q.legal = e.target.checked; renderResults(); } }), "Legal only"),
-        h("label", { class: "row full" }, "Sort", h("select", { class: "grow", "aria-label": "Search sort order", onchange: e => { S.ui.searchSort = e.target.value; save(); renderResults(); } },
-          [["alpha", "Alphabetic"], ["type", "Card type"], ["cats", "Categories"]].map(([v, l]) => h("option", { value: v, selected: S.ui.searchSort === v }, l))))),
+        h("div", { class: "row full" }, h("label", { for: "searchSort" }, "Sort"),
+          h("select", { id: "searchSort", class: "grow", onchange: e => { S.ui.searchSort = e.target.value; save(); renderResults(); } },
+            Object.entries(SEARCH_SORTS).map(([v, s]) => h("option", { value: v, selected: S.ui.searchSort === v }, s.label))),
+          h("button", { class: "dir", id: "searchDir", "aria-label": "Sort direction", onclick: e => {
+            S.ui.searchDir = S.ui.searchDir === "desc" ? "asc" : "desc"; save(); setDirButton(e.currentTarget); renderResults(); } }))),
       h("div", { id: "results", class: "results" }));
     root.replaceChildren(search, h("div", { id: "deckArea" }), h("aside", { id: "detail", class: "panel detail" }));
     root.className = "tab on build";
-    renderResults();
+    setDirButton($("#searchDir")); renderResults();
   }
   // deck area
   $("#deckArea", root).replaceChildren(
@@ -878,16 +1011,14 @@ function renderBuild() {
       h("button", { onclick: exportYdk }, "Export .ydk"),
       h("button", { onclick: ydkeDialog }, "YDKE"),
       h("label", { class: "row" }, "Images", imageSelect()),
+      imageStatus(),
       h("span", { style: { flexBasis: "100%", height: 0 } }),
       h("label", { class: "row" }, "Sort", h("select", { "aria-label": "Deck sort order", onchange: e => { S.ui.deckSort = e.target.value; save(); renderBuild(); } },
         [["custom", "Custom"], ["type", "Card type"], ["alpha", "Alphabetic"], ["cats", "Categories"]].map(([v, l]) => h("option", { value: v, selected: S.ui.deckSort === v }, l)))),
       S.ui.deckSort === "custom" ? h("span", { class: "dim imgnote" }, "Drag cards onto each other to reorder.") : null,
       h("span", { class: "grow" }),
       h("button", { class: "toggle", "aria-pressed": !!S.ui.overrideLimit, title: "Allow more copies than the format's limit (the deck is still flagged as illegal)",
-        onclick: () => { S.ui.overrideLimit = !S.ui.overrideLimit; save(); renderBuild(); toast(S.ui.overrideLimit ? "Card limits overridden" : "Card limits enforced"); } }, "Override card limit"),
-      S.ui.img === "folder" && !IMGS.urls.size ? h("button", { class: "small primary", onclick: connectFolder }, IMGS.needsPermission ? "Reconnect image folder" : "Choose image folder") : null,
-      S.ui.img === "folder" && IMGS.diag && (!IMGS.urls.size || IMGS.pathMisses) ? h("span", { class: "warn imgnote", style: { flexBasis: "100%" } }, folderReport()) : null,
-      S.ui.img === "path" && IMGS.pathMisses > 0 && !IMGS.pathHits ? h("span", { class: "warn imgnote", title: `Looked for ${S.ui.imgTpl.replace("{id}", "<passcode>")} relative to this page` }, `No images found at ${S.ui.imgTpl}`) : null),
+        onclick: () => { S.ui.overrideLimit = !S.ui.overrideLimit; save(); renderBuild(); toast(S.ui.overrideLimit ? "Card limits overridden" : "Card limits enforced"); } }, "Override card limit")),
     sectionEl("main", "Main Deck", mainInfo()), sectionEl("extra", "Extra Deck"), sectionEl("side", "Side Deck"));
   renderDetail();
   if (keepFocus === "q") $("#q").focus();
@@ -1311,12 +1442,24 @@ function renderFormat() {
         h("ul", { style: { margin: "4px 0", paddingLeft: "18px" } }, coverage().missing.map(c => h("li", {}, `${c.name} (${c.id})`)))) : null,
       h("button", { class: "small", onclick: async () => { await connectFolder(); renderFormat(); } },
         IMGS.needsPermission ? "Reconnect folder" : IMGS.urls.size ? "Choose another folder" : "Choose folder")) : null,
+    h("button", { class: "small ghost", style: { marginTop: "6px" }, onclick: async () => {
+      const t = await imageDiagnostics();
+      try { await navigator.clipboard.writeText(t); toast("Picture diagnostics copied"); } catch { prompt("Copy this:", t); } } }, "Copy picture diagnostics"),
     S.ui.img === "path" ? h("div", { style: { marginTop: "6px" } },
       h("label", { class: "dim", style: { fontSize: "12px" } }, "Full card image URL"),
       h("input", { style: { width: "100%" }, value: S.ui.imgTpl, onchange: e => { S.ui.imgTpl = e.target.value.trim() || "pics/{id}.jpg"; save(); probePath(); } }),
       h("label", { class: "dim", style: { fontSize: "12px", display: "block", marginTop: "4px" } }, "Cropped art URL (optional)"),
       h("input", { style: { width: "100%" }, value: S.ui.artTpl, placeholder: "e.g. art/{id}.jpg", onchange: e => { S.ui.artTpl = e.target.value.trim(); save(); } }),
       h("p", { class: "dim", style: { fontSize: "12px" } }, "Relative to this page, or a full URL to images you host. {id} is the passcode.")) : null,
+    h("h3", { style: { marginTop: "18px" } }, "Backup"),
+    h("p", { class: "dim", style: { fontSize: "12px" } }, "Saves every deck (with categories, order and scenarios) and every format to one file. Restoring adds them to what's here."),
+    h("div", { class: "row" },
+      h("button", { class: "small", onclick: backupAll }, "Back up everything"),
+      h("button", { class: "small", onclick: () => $("#backupIn").click() }, "Restore backup")),
+    h("input", { type: "file", id: "backupIn", accept: ".json,application/json", hidden: true, onchange: async e => {
+      const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+      try { const r = restoreAll(JSON.parse(await f.text())); toast(`Restored ${r.decks} deck${r.decks === 1 ? "" : "s"} and ${r.formats} format${r.formats === 1 ? "" : "s"}`); changed(); }
+      catch (err) { toast(`That file isn't a Deck Forge backup (${err.message})`); } } }),
     h("h3", { style: { marginTop: "18px" } }, "Card data"),
     h("p", { class: "dim", style: { fontSize: "13px" } }, S.meta ? `${S.meta.n} cards, built ${new Date(S.meta.fetched).toLocaleString()}${S.meta.source ? ` from YGOPRODeck database v${S.meta.source}` : ""}. Points lists: ${Object.keys(S.gp).length} Genesys, ${Object.keys(S.gpo).length} Genesys OCG.` : "Not loaded yet."),
     (() => {
@@ -1364,6 +1507,26 @@ function renderFormat() {
       : h("p", { class: "dim" }, "No overrides yet."));
   root.className = "tab on fmt"; root.replaceChildren(list, editor);
 }
+function backupAll() {
+  const blob = new Blob([JSON.stringify({ app: "deck-forge", backup: 1, saved: new Date().toISOString(), decks: S.decks, formats: S.formats, ui: S.ui }, null, 1)], { type: "application/json" });
+  const a = h("a", { href: URL.createObjectURL(blob), download: `deck-forge-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// Adds the backup's decks and formats; anything with the same id as an existing one gets a fresh id.
+function restoreAll(b) {
+  if (!b || b.app !== "deck-forge" || !Array.isArray(b.decks)) throw new Error("missing deck list");
+  const deckIds = new Set(S.decks.map(d => d.id)), fmtIds = new Set(S.formats.map(f => f.id));
+  const lonelyStarter = S.decks.length === 1 && !count(S.decks[0].main) && !count(S.decks[0].extra) && !count(S.decks[0].side);
+  if (lonelyStarter) { S.decks = []; deckIds.clear(); }        // replace the empty default deck
+  for (const d of b.decks) { if (deckIds.has(d.id)) d.id = uid(); d.order ||= {}; d.swPool ||= []; d.tags ||= {}; S.decks.push(d); }
+  for (const f of b.formats || []) {
+    if (S.formats.some(x => x.name === f.name && JSON.stringify({ ...x, id: 0 }) === JSON.stringify({ ...f, id: 0 }))) continue;   // identical format already here
+    if (fmtIds.has(f.id)) f.id = uid(); f.over ||= {}; f.pover ||= {}; S.formats.push(f);
+  }
+  if (b.ui) for (const k of ["deckSort", "searchSort", "searchDir", "textSearch"]) if (b.ui[k] != null) S.ui[k] = b.ui[k];
+  S.deckId = S.decks[S.decks.length - 1].id;
+  return { decks: b.decks.length, formats: (b.formats || []).length };
+}
 function uniqueName(base) { let n = base, i = 2; while (S.formats.some(f => f.name === n)) n = `${base} ${i++}`; return n; }
 
 /* ================= init ================= */
@@ -1380,6 +1543,7 @@ async function init() {
     }
   }
   for (const f of S.formats) { f.over ||= {}; f.pover ||= {}; }
+  if (!SEARCH_SORTS[S.ui.searchSort]) S.ui.searchSort = "alpha";
   if (S.ui.img === "local") S.ui.img = "path"; else if (!["off", "folder", "path"].includes(S.ui.img)) S.ui.img = "off";
   const cur = LS.get("cur", {});
   S.deckId = S.decks.some(d => d.id === cur.deck) ? cur.deck : S.decks[0].id;
@@ -1398,7 +1562,8 @@ async function init() {
   await loadDB();
   renderHeader(); setTab(cur.tab || "build");          // show the app first; images arrive afterwards
   // Re-reading a big image folder can take a while (thousands of files), so it runs in the background.
-  restoreFolder().then(() => { if (IMGS.urls.size) { probePath(); renderResults(); renderTab(); } })
+  // Always redraw afterwards: the folder may need a "Reconnect" click, and that button must appear.
+  restoreFolder().then(() => { if (IMGS.urls.size) probePath(); renderResults(); renderTab(); })
     .catch(e => console.warn("Image folder:", e));
   // quiet background check: a tiny meta.json request, full download only when the data changed
   syncData().then(r => { if (r.updated) { toast(`Card data updated (${S.meta.n} cards)`); changed(); } }).catch(e => console.warn(e));
