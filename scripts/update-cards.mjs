@@ -13,6 +13,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 const API = "https://db.ygoprodeck.com/api/v7/";
 const OUT = new URL("../data/", import.meta.url);
 const WEEK = 7 * 24 * 3600 * 1000;
+const SCHEMA = 2;   // bump when the file layout changes, so clients and this script rebuild
 const force = process.argv.includes("--force");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -21,6 +22,10 @@ async function getJSON(path) {
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
   return r.json();
 }
+
+// Set names and rarities repeat thousands of times, so they're stored once and referenced by index.
+const setNames = [], rarities = [], setIdx = new Map(), rarIdx = new Map();
+const intern = (v, list, map) => { if (!map.has(v)) { map.set(v, list.length); list.push(v); } return map.get(v); };
 
 // Keep only what the app uses; this roughly halves the file.
 function trim(c) {
@@ -37,6 +42,9 @@ function trim(c) {
   o.formats = (m.formats ?? []).map(s => s.toLowerCase());
   const alts = (c.card_images ?? []).map(i => i.id).filter(id => id !== c.id);
   if (alts.length) o.alts = alts;
+  if (m.tcg_date) o.tcg = m.tcg_date;
+  if (m.ocg_date) o.ocg = m.ocg_date;
+  if (c.card_sets?.length) o.sets = c.card_sets.map(s => [s.set_code, intern(s.set_name, setNames, setIdx), intern(s.set_rarity, rarities, rarIdx)]);
   return o;
 }
 const points = (cards, key) => {
@@ -50,7 +58,7 @@ const ver = await getJSON("checkDBVer.php");
 const dbVersion = String((Array.isArray(ver) ? ver[0] : ver)?.database_version ?? "unknown");
 const stale = !prev || Date.now() - Date.parse(prev.fetched) > WEEK;
 
-if (!force && !stale && prev.source === dbVersion) {
+if (!force && !stale && prev.source === dbVersion && prev.schema === SCHEMA) {
   console.log(`Up to date (YGOPRODeck database v${dbVersion}).`);
   process.exit(0);
 }
@@ -71,9 +79,9 @@ if (Object.keys(gp).length === 0) throw new Error("Empty Genesys point list; not
 
 const fetched = new Date().toISOString();
 const cards = all.filter(c => c.frameType !== "skill").map(trim);
-const blob = { version: fetched, fetched, source: dbVersion, cards, gp, gpo };
+const blob = { schema: SCHEMA, version: fetched, fetched, source: dbVersion, cards, gp, gpo, setNames, rarities };
 
 await mkdir(OUT, { recursive: true });
 await writeFile(new URL("cards.json", OUT), JSON.stringify(blob));
-await writeFile(new URL("meta.json", OUT), JSON.stringify({ version: fetched, fetched, source: dbVersion, count: cards.length }, null, 2) + "\n");
+await writeFile(new URL("meta.json", OUT), JSON.stringify({ schema: SCHEMA, version: fetched, fetched, source: dbVersion, count: cards.length }, null, 2) + "\n");
 console.log(`Wrote ${cards.length} cards, ${Object.keys(gp).length} Genesys and ${Object.keys(gpo).length} Genesys OCG point entries.`);
